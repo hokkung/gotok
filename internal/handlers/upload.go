@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -60,8 +61,8 @@ func (h *Handlers) Upload(c *gin.Context) {
 		return
 	}
 
-	max := h.cfg.MaxUploadMB * 1024 * 1024
-	if file.Size > max {
+	maxBytes := h.cfg.MaxUploadMB * 1024 * 1024
+	if file.Size > maxBytes {
 		c.JSON(http.StatusRequestEntityTooLarge,
 			gin.H{"error": fmt.Sprintf("file too large (max %dMB)", h.cfg.MaxUploadMB)})
 		return
@@ -87,7 +88,9 @@ func (h *Handlers) Upload(c *gin.Context) {
 		Size:     file.Size,
 	})
 	if err != nil {
-		os.Remove(dst)
+		if rmErr := os.Remove(dst); rmErr != nil {
+			log.Printf("remove orphaned upload %s: %v", dst, rmErr)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create record"})
 		return
 	}

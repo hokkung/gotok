@@ -1,3 +1,5 @@
+// Package config holds GoTok's configuration, loaded from sensible defaults
+// (ports, paths, upload limits) and a persisted cookie secret.
 package config
 
 import (

@@ -1,11 +1,14 @@
+// Package store is the SQLite persistence layer for GoTok: it owns the schema,
+// migrations, and all SQL queries.
 package store
 
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the pure-Go SQLite driver for database/sql
 
 	"live/internal/models"
 )
@@ -329,7 +332,9 @@ func (s *Store) ListComments(videoID int64, afterID int64, limit int) ([]models.
 
 // IncrementViews bumps the view counter for a video.
 func (s *Store) IncrementViews(id int64) {
-	s.db.Exec(`UPDATE videos SET views = views + 1 WHERE id = ?`, id)
+	if _, err := s.db.Exec(`UPDATE videos SET views = views + 1 WHERE id = ?`, id); err != nil {
+		log.Printf("increment views for video %d: %v", id, err)
+	}
 }
 
 // CreateOrUpdateUser inserts a user for the given provider identity, or updates

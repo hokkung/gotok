@@ -1,3 +1,5 @@
+// Package models defines the data types (Video, User, Comment, Like) shared
+// across GoTok's store and handler layers.
 package models
 
 import "time"
