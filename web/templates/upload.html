@@ -1,0 +1,18 @@
+{{define "upload.html"}}
+{{template "header" .}}
+<section class="upload-page">
+  <h1>Upload a video</h1>
+  <form id="uploadForm" class="upload-form">
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="file" name="file" accept="video/*" hidden>
+      <span id="dztext">Tap or drop a video here</span>
+    </label>
+    <input type="text" name="title" id="title" placeholder="Title (optional)" maxlength="120">
+    <button type="submit" id="submitBtn">Upload</button>
+    <p class="hint">Max {{.MaxUploadMB}}MB · mp4, webm, mov, mkv</p>
+    <div id="status" class="status"></div>
+  </form>
+</section>
+<script src="/static/js/upload.js"></script>
+{{template "footer" .}}
+{{end}}

@@ -1,0 +1,188 @@
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; background: #000; color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+}
+a { color: inherit; }
+
+.topnav {
+  position: fixed; top: 0; left: 0; right: 0; height: 52px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; z-index: 50;
+  background: linear-gradient(180deg, rgba(0,0,0,.6), rgba(0,0,0,0));
+}
+.brand { text-decoration: none; font-weight: 700; font-size: 18px; }
+.navlinks a { text-decoration: none; margin-left: 14px; opacity: .9; }
+
+/* ----- TikTok-style feed ----- */
+.feed {
+  height: 100vh; height: 100dvh; overflow-y: scroll;
+  scroll-snap-type: y mandatory; scroll-behavior: smooth; scrollbar-width: none;
+}
+.feed::-webkit-scrollbar { display: none; }
+.video-card {
+  position: relative; height: 100vh; height: 100dvh;
+  scroll-snap-align: start; scroll-snap-stop: always;
+  display: flex; align-items: center; justify-content: center; background: #000;
+}
+.video-card video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.overlay {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 24px 16px 26px; pointer-events: none;
+  background: linear-gradient(0deg, rgba(0,0,0,.75), transparent);
+}
+.overlay .title { font-size: 16px; font-weight: 600; }
+.overlay .meta { opacity: .8; margin-top: 4px; font-size: 13px; }
+.actions {
+  position: absolute; right: 10px; bottom: 96px;
+  display: flex; flex-direction: column; align-items: center; gap: 22px; z-index: 10;
+}
+.action-btn {
+  background: transparent; border: none; color: #fff; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.action-btn .icon { font-size: 34px; line-height: 1; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
+.action-btn .count { font-size: 12px; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.heart { transition: transform .12s ease, color .12s ease; color: #fff; }
+.heart.liked { color: #ff3b5c; }
+.heart.pop { transform: scale(1.4); }
+
+/* Big floating heart shown on double-tap to like (TikTok-style). */
+.tap-heart {
+  position: absolute;
+  font-size: 90px;
+  color: #ff3b5c;
+  transform: translate(-50%, -50%) scale(.4);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,.5));
+  animation: tapHeart .8s ease-out forwards;
+}
+@keyframes tapHeart {
+  0%   { transform: translate(-50%, -50%) scale(.4);  opacity: 0; }
+  20%  { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  100% { transform: translate(-50%, -75%) scale(1);   opacity: 0; }
+}
+.tap-hint { position: absolute; top: 60px; right: 14px; font-size: 11px; opacity: .45; }
+.empty { color: #fff; opacity: .7; text-align: center; padding-top: 40vh; }
+.empty a { color: #ff3b5c; }
+.loader { text-align: center; padding: 10px; color: #fff; opacity: .6; position: fixed; bottom: 12px; left: 0; right: 0; }
+.loader.hide { display: none; }
+
+/* ----- Upload page ----- */
+.upload-page {
+  max-width: 520px; margin: 0 auto; padding: 78px 16px 40px;
+  height: 100vh; overflow: auto; background: #0f0f12;
+}
+.upload-page h1 { font-size: 22px; margin: 0 0 18px; }
+.upload-form { display: flex; flex-direction: column; gap: 14px; }
+.dropzone {
+  display: flex; align-items: center; justify-content: center;
+  height: 220px; border: 2px dashed #444; border-radius: 14px;
+  color: #aaa; cursor: pointer; text-align: center; padding: 16px;
+}
+.dropzone:hover { border-color: #888; color: #fff; }
+.upload-form input[type=text] {
+  padding: 12px 14px; border-radius: 10px; border: 1px solid #333;
+  background: #1b1b20; color: #fff; font-size: 15px;
+}
+.upload-form button {
+  padding: 14px; border: none; border-radius: 10px;
+  background: #ff3b5c; color: #fff; font-weight: 700; font-size: 16px; cursor: pointer;
+}
+.upload-form button:disabled { opacity: .6; cursor: default; }
+.hint { color: #888; font-size: 12px; margin: 0; }
+.status { font-size: 14px; min-height: 20px; }
+.status.error { color: #ff6b6b; }
+.status.ok { color: #4ade80; }
+
+/* ----- Comment bottom-sheet modal ----- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.55);
+  display: none; align-items: flex-end; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.comment-sheet {
+  width: 100%; max-width: 560px; height: 62vh;
+  background: #161618; border-radius: 16px 16px 0 0;
+  display: flex; flex-direction: column;
+  animation: sheetUp .25s ease;
+}
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid #2a2a2e;
+}
+.sheet-title { font-weight: 700; font-size: 15px; }
+.sheet-close { background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; padding: 0 4px; }
+.comment-list { flex: 1; overflow-y: auto; padding: 6px 16px; }
+.comment-empty { text-align: center; color: #888; padding: 32px 0; font-size: 14px; }
+.comment-item { display: flex; gap: 12px; padding: 10px 0; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+  background: #ff3b5c; color: #fff; display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 16px;
+}
+.comment-body { min-width: 0; flex: 1; }
+.comment-author { font-weight: 600; font-size: 13px; color: #ccc; }
+.comment-time { font-weight: 400; color: #777; }
+.comment-text { font-size: 15px; word-break: break-word; margin-top: 2px; line-height: 1.35; }
+.comment-input-bar {
+  display: flex; gap: 8px; padding: 10px 16px 16px; border-top: 1px solid #2a2a2e;
+}
+.comment-input-bar input {
+  flex: 1; padding: 12px 14px; border-radius: 22px; border: 1px solid #333;
+  background: #1b1b20; color: #fff; font-size: 14px;
+}
+.comment-input-bar button {
+  border: none; border-radius: 22px; padding: 0 20px;
+  background: #ff3b5c; color: #fff; font-weight: 700; cursor: pointer;
+}
+.comment-input-bar button:disabled { opacity: .5; cursor: default; }
+
+/* ----- Nav auth widget (user name + logout / log in link) ----- */
+.nav-user {
+  margin-left: 14px; font-size: 13px; opacity: .85;
+  max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.logout-form { display: inline; margin-left: 10px; }
+.logout-form button {
+  background: transparent; border: 1px solid #555; color: #fff;
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.logout-form button:hover { border-color: #ff3b5c; }
+
+/* ----- Login page ----- */
+.auth-page {
+  max-width: 420px; margin: 0 auto; padding: 78px 16px 40px;
+  height: 100vh; overflow: auto; background: #0f0f12;
+}
+.auth-card { display: flex; flex-direction: column; gap: 14px; }
+.auth-card h1 { font-size: 24px; margin: 0 0 4px; }
+.auth-sub { color: #aaa; font-size: 14px; margin: 0 0 14px; }
+.sso-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 13px; border-radius: 10px; border: 1px solid #333;
+  background: #1b1b20; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.sso-btn:hover { background: #26262c; }
+.sso-btn.demo { background: #ff3b5c; border-color: #ff3b5c; }
+.sso-btn.demo:hover { background: #ff5470; }
+.sso-logo {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px;
+}
+.google .sso-logo { background: #fff; color: #4285f4; }
+.facebook .sso-logo { background: #1877f2; color: #fff; }
+.auth-divider {
+  display: flex; align-items: center; gap: 12px; color: #666; font-size: 13px;
+  margin: 6px 0;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ''; flex: 1; height: 1px; background: #2a2a2e;
+}

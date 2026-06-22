@@ -1,0 +1,33 @@
+{{define "header"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{.Title}} · GoTok</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="/feed">📺 GoTok</a>
+    <div class="navlinks">
+      <a href="/feed">Feed</a>
+      <a href="/upload">Upload</a>
+      {{if .User}}
+        <span class="nav-user">{{.User.Name}}</span>
+        <form action="/logout" method="post" class="logout-form">
+          <button type="submit">Log out</button>
+        </form>
+      {{else}}
+        <a href="/login">Log in</a>
+      {{end}}
+    </div>
+  </nav>
+  <main>
+{{end}}
+
+{{define "footer"}}
+  </main>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,28 @@
+{{define "login.html"}}
+{{template "header" .}}
+<section class="auth-page" id="authRoot" data-next="{{.Next}}">
+  <div class="auth-card">
+    <h1>Log in to GoTok</h1>
+    <p class="auth-sub">Log in to like videos and post comments.</p>
+
+    <!-- SSO providers. These are placeholders: the buttons hit /auth/google and
+         /auth/facebook, which currently return "coming soon". Wire up OAuth
+         (redirect -> provider -> callback -> CreateOrUpdateUser) to enable them. -->
+    <button class="sso-btn google" id="googleBtn" type="button">
+      <span class="sso-logo">G</span> Continue with Google
+    </button>
+    <button class="sso-btn facebook" id="facebookBtn" type="button">
+      <span class="sso-logo">f</span> Continue with Facebook
+    </button>
+
+    <div class="auth-divider"><span>or</span></div>
+
+    <!-- Demo login: lets the auth flow run before SSO is implemented. -->
+    <button class="sso-btn demo" id="demoBtn" type="button">Continue as demo user</button>
+
+    <div id="authStatus" class="status"></div>
+  </div>
+</section>
+<script src="/static/js/login.js"></script>
+{{template "footer" .}}
+{{end}}
