@@ -82,12 +82,12 @@ live/
 ### Startup (`main.go`)
 
 ```
-config.Load() ──► store.New(cfg.DBPath) ──► gin.Default() ──► register middleware + routes ──► r.Run(:8080)
+config.Load() ──► logger.New() ──► store.New(cfg.DBPath, lg) ──► gin.New()+zap middleware ──► register routes ──► r.Run(:8080)
 ```
 
 1. **`config.Load()`** — ensures `data/` and `data/uploads/` exist; generates and persists a 32‑byte `cookie_secret` on first run (so session tokens survive restarts). Returns hardcoded defaults: `:8080`, 200 MB upload cap, paths under `data/`.
 2. **`store.New(dbPath)`** — opens SQLite in WAL mode with a 5 s busy timeout, sets **`SetMaxOpenConns(1)`** (single writer avoids "database is locked"), runs migrations.
-3. **Gin setup** — `gin.Default()` (logger + recovery), sets `MaxMultipartMemory = 32 MiB` (larger uploads spill to temp files), registers the `Auth()` middleware (loads the logged-in user from the `session` cookie on every request), loads HTML templates, mounts `/static`.
+3. **Gin setup** — `gin.New()` + zap-backed `GinLogger`/`GinRecovery` middleware (access logs and panics flow through `go.uber.org/zap` rather than the std logger), sets `MaxMultipartMemory = 32 MiB` (larger uploads spill to temp files), registers the `Auth()` middleware (loads the logged-in user from the `session` cookie on every request), loads HTML templates, mounts `/static`.
 4. **Routes** are registered (see §6), then `r.Run(":8080")` blocks and serves.
 
 ### A typical feed request

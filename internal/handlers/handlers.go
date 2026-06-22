@@ -4,6 +4,7 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"live/internal/config"
 	"live/internal/middleware"
@@ -12,13 +13,18 @@ import (
 
 // Handlers groups all HTTP handlers and their dependencies.
 type Handlers struct {
-	cfg   *config.Config
-	store *store.Store
+	cfg    *config.Config
+	store  *store.Store
+	logger *zap.Logger
 }
 
-// New builds a Handlers value wired to the given config and store.
-func New(cfg *config.Config, st *store.Store) *Handlers {
-	return &Handlers{cfg: cfg, store: st}
+// New builds a Handlers value wired to the given config, store, and logger.
+// A nil logger is replaced with a no-op logger.
+func New(cfg *config.Config, st *store.Store, lg *zap.Logger) *Handlers {
+	if lg == nil {
+		lg = zap.NewNop()
+	}
+	return &Handlers{cfg: cfg, store: st, logger: lg}
 }
 
 // base returns the template data shared by every page: the page title and the

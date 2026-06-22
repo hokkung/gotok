@@ -5,28 +5,35 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	_ "modernc.org/sqlite" // registers the pure-Go SQLite driver for database/sql
+
+	"go.uber.org/zap"
 
 	"live/internal/models"
 )
 
 // Store wraps the database connection and provides data access.
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *zap.Logger
 }
 
-// New opens (or creates) the SQLite database and initializes the schema.
-func New(path string) (*Store, error) {
+// New opens (or creates) the SQLite database and initializes the schema. A nil
+// logger is replaced with a no-op logger so callers that don't need logging
+// don't need to construct one.
+func New(path string, lg *zap.Logger) (*Store, error) {
+	if lg == nil {
+		lg = zap.NewNop()
+	}
 	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	// Single writer connection avoids SQLite "database is locked" errors.
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, logger: lg}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -333,7 +340,7 @@ func (s *Store) ListComments(videoID int64, afterID int64, limit int) ([]models.
 // IncrementViews bumps the view counter for a video.
 func (s *Store) IncrementViews(id int64) {
 	if _, err := s.db.Exec(`UPDATE videos SET views = views + 1 WHERE id = ?`, id); err != nil {
-		log.Printf("increment views for video %d: %v", id, err)
+		s.logger.Error("increment views", zap.Int64("video_id", id), zap.Error(err))
 	}
 }
 

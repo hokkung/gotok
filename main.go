@@ -3,38 +3,51 @@
 package main
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"live/internal/config"
 	"live/internal/handlers"
+	"live/internal/logger"
 	"live/internal/middleware"
 	"live/internal/store"
 )
 
 func main() {
+	// Build the logger first so every subsequent step (config, store, server)
+	// can report through zap. If zap itself fails to initialise there is no
+	// logger to log with, so we panic — a genuine environment error.
+	lg, err := logger.New()
+	if err != nil {
+		panic("init logger: " + err.Error())
+	}
+	defer func() { _ = lg.Sync() }()
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		lg.Fatal("config", zap.Error(err))
 	}
-	st, err := store.New(cfg.DBPath)
+	st, err := store.New(cfg.DBPath, lg)
 	if err != nil {
-		log.Fatalf("store: %v", err)
+		lg.Fatal("store", zap.Error(err))
 	}
 	defer func() {
 		if err := st.Close(); err != nil {
-			log.Printf("close store: %v", err)
+			lg.Error("close store", zap.Error(err))
 		}
 	}()
 
-	r := gin.Default()
+	// gin.New() gives a bare engine; we add the zap-backed logger + recovery
+	// middleware (replacing gin.Default's std-library logging) and then Auth.
+	r := gin.New()
+	r.Use(middleware.GinLogger(lg), middleware.GinRecovery(lg))
 	r.MaxMultipartMemory = 32 << 20 // 32 MiB in memory; larger spills to temp files.
 	r.Use(middleware.Auth(st))
 	r.LoadHTMLGlob("web/templates/*")
 
-	h := handlers.New(cfg, st)
+	h := handlers.New(cfg, st, lg)
 
 	r.Static("/static", "./web/static")
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/feed") })
@@ -61,10 +74,10 @@ func main() {
 		api.POST("/upload", h.Upload)
 	}
 
-	log.Printf("GoTok listening on http://localhost%s", cfg.ListenAddr)
+	lg.Info("GoTok listening", zap.String("addr", cfg.ListenAddr))
 	if err := r.Run(cfg.ListenAddr); err != nil {
-		// log.Fatalf would skip the deferred st.Close(); log and return instead so
+		// lg.Fatal would skip the deferred st.Close(); log and return instead so
 		// the store closes cleanly on shutdown.
-		log.Printf("server: %v", err)
+		lg.Error("server", zap.Error(err))
 	}
 }
