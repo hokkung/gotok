@@ -67,7 +67,8 @@ function renderCard(v) {
     '<video muted loop playsinline preload="metadata">' +
       '<source src="/uploads/' + encodeURIComponent(v.filename) + '" type="' + (v.mime_type || 'video/mp4') + '">' +
     '</video>' +
-    '<div class="tap-hint">tap: sound · double-tap: ❤</div>' +
+    '<div class="tap-hint">tap: play/pause · double-tap: ❤</div>' +
+    '<div class="play-indicator">▶</div>' +
     '<div class="actions">' +
       '<button class="action-btn like" type="button" aria-label="Like">' +
         '<span class="icon heart' + (liked ? ' liked' : '') + '">❤</span>' +
@@ -81,12 +82,23 @@ function renderCard(v) {
     '<div class="overlay">' +
       '<div class="title">' + escapeHtml(v.title) + '</div>' +
       '<div class="meta">' + formatDate(v.created_at) + '</div>' +
+    '</div>' +
+    '<div class="seek-bar">' +
+      '<span class="seek-time seek-cur">0:00</span>' +
+      '<button class="seek-skip seek-back" type="button" aria-label="Skip back 10 seconds">⏪</button>' +
+      '<div class="seek-track">' +
+        '<div class="seek-fill"></div>' +
+        '<div class="seek-thumb"></div>' +
+      '</div>' +
+      '<button class="seek-skip seek-fwd" type="button" aria-label="Skip forward 10 seconds">⏩</button>' +
+      '<span class="seek-time seek-dur">0:00</span>' +
+      '<button class="seek-mute" type="button" aria-label="Mute / unmute">🔇</button>' +
     '</div>';
   feed.appendChild(card);
 
   const video = card.querySelector('video');
-  // Single click toggles mute; double click (or double tap on mobile) likes the
-  // video, matching the TikTok gesture. A short timer disambiguates the two.
+  // Single click toggles play/pause; double click (or double tap on mobile)
+  // likes the video, matching the TikTok gesture. A short timer disambiguates.
   let clickTimer = null;
   video.addEventListener('click', (e) => {
     if (clickTimer) {
@@ -96,13 +108,121 @@ function renderCard(v) {
     } else {
       clickTimer = setTimeout(() => {
         clickTimer = null;
-        video.muted = !video.muted;
+        togglePlay(card, video);
       }, 250);
     }
   });
   card.querySelector('.action-btn.like').addEventListener('click', () => toggleLike(card, v.id));
   card.querySelector('.action-btn.comment').addEventListener('click', () => openComments(card, v.id));
+  wireSeekBar(card, video);
   observer.observe(card);
+}
+
+// formatTime turns a number of seconds into m:ss (e.g. 65 -> "1:05").
+function formatTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+// togglePlay is the single-tap gesture: play when paused, pause when playing.
+// The play/pause indicator is driven by video events in wireSeekBar.
+function togglePlay(card, video) {
+  if (video.paused) video.play().catch(() => {});
+  else video.pause();
+}
+
+// wireSeekBar wires up the TikTok/YouTube-style progress bar at the bottom of a
+// video card: current second / duration readout, a draggable scrub track, and
+// +/-10s skip buttons. Everything is driven by the native <video> element, so
+// the logic ports directly to any future framework (Svelte/Next) rewrite.
+function wireSeekBar(card, video) {
+  const bar = card.querySelector('.seek-bar');
+  const cur = bar.querySelector('.seek-cur');
+  const dur = bar.querySelector('.seek-dur');
+  const fill = bar.querySelector('.seek-fill');
+  const thumb = bar.querySelector('.seek-thumb');
+  const track = bar.querySelector('.seek-track');
+
+  // render() syncs the readout + fill/thumb position from the video element.
+  function render() {
+    const d = video.duration;
+    const t = video.currentTime;
+    cur.textContent = formatTime(t);
+    dur.textContent = isFinite(d) ? formatTime(d) : '0:00';
+    const pct = (isFinite(d) && d > 0) ? Math.min(1, Math.max(0, t / d)) : 0;
+    fill.style.width = (pct * 100) + '%';
+    thumb.style.left = (pct * 100) + '%';
+  }
+
+  video.addEventListener('loadedmetadata', render);
+  video.addEventListener('durationchange', render);
+  video.addEventListener('timeupdate', render);
+  video.addEventListener('seeking', render);
+  video.addEventListener('seeked', render);
+
+  // Skip buttons jump +/-10s, clamped to [0, duration]. stopPropagation keeps
+  // the click from also toggling mute on the underlying video gesture handler.
+  bar.querySelector('.seek-back').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isFinite(video.duration)) video.currentTime = Math.max(0, video.currentTime - 10);
+  });
+  bar.querySelector('.seek-fwd').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isFinite(video.duration)) video.currentTime = Math.min(video.duration, video.currentTime + 10);
+  });
+
+  // Scrub: pointer events cover mouse, touch and pen. setPointerCapture keeps
+  // the drag alive even if the pointer leaves the track, and touch-action:none
+  // on the track means a horizontal scrub won't trigger the feed's vertical
+  // scroll-snap swipe.
+  let scrubbing = false;
+  const ratio = (e) => {
+    const rect = track.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  };
+  const seekTo = (r) => {
+    if (isFinite(video.duration)) video.currentTime = r * video.duration;
+  };
+  track.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    scrubbing = true;
+    bar.classList.add('active');
+    try { track.setPointerCapture(e.pointerId); } catch {}
+    seekTo(ratio(e));
+  });
+  track.addEventListener('pointermove', (e) => { if (scrubbing) seekTo(ratio(e)); });
+  const endScrub = (e) => {
+    if (!scrubbing) return;
+    scrubbing = false;
+    bar.classList.remove('active');
+    try { track.releasePointerCapture(e.pointerId); } catch {}
+  };
+  track.addEventListener('pointerup', endScrub);
+  track.addEventListener('pointercancel', endScrub);
+
+  // Mute toggle button — replaces the old single-tap-to-mute gesture (single
+  // tap now pauses/resumes). volumechange keeps the icon in sync if muted is
+  // changed from anywhere.
+  const muteBtn = bar.querySelector('.seek-mute');
+  const syncMute = () => { muteBtn.textContent = video.muted ? '🔇' : '🔊'; };
+  muteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    video.muted = !video.muted;
+    syncMute();
+  });
+  video.addEventListener('volumechange', syncMute);
+  syncMute();
+
+  // Centered play/pause indicator: reflect the video's actual play state. This
+  // stays correct even though autoplay is driven by the IntersectionObserver.
+  const syncPaused = () => card.classList.toggle('is-paused', video.paused);
+  video.addEventListener('play', syncPaused);
+  video.addEventListener('pause', syncPaused);
+  syncPaused();
+
+  render();
 }
 
 async function toggleLike(card, id) {

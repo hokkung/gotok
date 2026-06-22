@@ -29,7 +29,7 @@ a { color: inherit; }
 .video-card video { width: 100%; height: 100%; object-fit: contain; background: #000; }
 .overlay {
   position: absolute; left: 0; right: 0; bottom: 0;
-  padding: 24px 16px 26px; pointer-events: none;
+  padding: 24px 16px 62px; pointer-events: none;
   background: linear-gradient(0deg, rgba(0,0,0,.75), transparent);
 }
 .overlay .title { font-size: 16px; font-weight: 600; }
@@ -70,6 +70,82 @@ a { color: inherit; }
 .empty a { color: #ff3b5c; }
 .loader { text-align: center; padding: 10px; color: #fff; opacity: .6; position: fixed; bottom: 12px; left: 0; right: 0; }
 .loader.hide { display: none; }
+
+/* ----- Seek bar: current second readout + draggable scrub + +/-10s skip ----- */
+.seek-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 12px; touch-action: none;
+  background: linear-gradient(0deg, rgba(0,0,0,.7), rgba(0,0,0,0));
+}
+.seek-time {
+  font-size: 12px; font-variant-numeric: tabular-nums; opacity: .92;
+  min-width: 34px; text-align: center; flex-shrink: 0;
+  text-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
+.seek-skip {
+  background: rgba(255,255,255,.14); border: none; color: #fff;
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px;
+  transition: background .12s ease, transform .08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.seek-skip:hover { background: rgba(255,255,255,.26); }
+.seek-skip:active { transform: scale(.88); }
+.seek-track {
+  position: relative; flex: 1; height: 22px; cursor: pointer; touch-action: none;
+  display: flex; align-items: center;
+}
+.seek-track::before {
+  content: ''; position: absolute; left: 0; right: 0; height: 3px;
+  background: rgba(255,255,255,.28); border-radius: 2px;
+}
+.seek-fill {
+  position: absolute; left: 0; height: 3px; width: 0%;
+  background: #ff3b5c; border-radius: 2px; pointer-events: none;
+}
+.seek-thumb {
+  position: absolute; top: 50%; width: 12px; height: 12px;
+  transform: translate(-50%, -50%) scale(0);
+  background: #fff; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,.5); transition: transform .12s ease;
+}
+/* Show the grab handle while scrubbing (all devices), and on hover for fine
+   pointers only, so touch devices don't get a stuck-visible thumb. */
+.seek-bar.active .seek-thumb { transform: translate(-50%, -50%) scale(1); }
+@media (hover: hover) and (pointer: fine) {
+  .seek-bar:hover .seek-thumb { transform: translate(-50%, -50%) scale(1); }
+}
+
+/* Mute toggle button on the seek bar (replaces the old tap-to-mute gesture). */
+.seek-mute {
+  background: rgba(255,255,255,.14); border: none; color: #fff;
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 15px;
+  transition: background .12s ease, transform .08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.seek-mute:hover { background: rgba(255,255,255,.26); }
+.seek-mute:active { transform: scale(.88); }
+
+/* Centered play/pause indicator shown when a video is paused. pointer-events
+   are off so a tap still reaches the underlying video (to resume). The play
+   glyph is nudged a hair right for optical centering of the triangle. */
+.play-indicator {
+  position: absolute; top: 50%; left: 50%; z-index: 15;
+  width: 76px; height: 76px; border-radius: 50%;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; color: #fff; padding-left: 4px;
+  opacity: 0; transform: translate(-50%, -50%) scale(.6);
+  pointer-events: none;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.video-card.is-paused .play-indicator {
+  opacity: 1; transform: translate(-50%, -50%) scale(1);
+}
 
 /* ----- Upload page ----- */
 .upload-page {
