@@ -1,3 +1,5 @@
+// Command gotok is a minimal, single-binary TikTok-style vertical-video web
+// app: Gin + SQLite + vanilla JS, no frontend build step.
 package main
 
 import (
@@ -21,7 +23,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("store: %v", err)
 	}
-	defer st.Close()
+	defer func() {
+		if err := st.Close(); err != nil {
+			log.Printf("close store: %v", err)
+		}
+	}()
 
 	r := gin.Default()
 	r.MaxMultipartMemory = 32 << 20 // 32 MiB in memory; larger spills to temp files.
@@ -57,6 +63,8 @@ func main() {
 
 	log.Printf("GoTok listening on http://localhost%s", cfg.ListenAddr)
 	if err := r.Run(cfg.ListenAddr); err != nil {
-		log.Fatalf("server: %v", err)
+		// log.Fatalf would skip the deferred st.Close(); log and return instead so
+		// the store closes cleanly on shutdown.
+		log.Printf("server: %v", err)
 	}
 }

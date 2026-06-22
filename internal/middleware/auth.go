@@ -1,3 +1,5 @@
+// Package middleware provides Gin HTTP middleware for GoTok, notably the
+// session-based auth that loads the logged-in user into the request context.
 package middleware
 
 import (

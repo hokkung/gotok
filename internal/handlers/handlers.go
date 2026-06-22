@@ -1,3 +1,5 @@
+// Package handlers contains the HTTP handlers for the GoTok web app, split one
+// file per feature (feed, upload, like, comment, video, auth).
 package handlers
 
 import (

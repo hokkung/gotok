@@ -7,7 +7,7 @@ ADDR     := :8080
 DATA_DIR := data
 
 # Phony targets = commands, not files.
-.PHONY: help run build vet fmt tidy test clean reset serve
+.PHONY: help run build vet lint fmt tidy test clean reset serve
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
@@ -24,6 +24,9 @@ serve: build ## Build, then run the compiled binary
 
 vet: ## Run go vet
 	go vet ./...
+
+lint: ## Run golangci-lint (install: brew install golangci-lint)
+	golangci-lint run
 
 fmt: ## Format Go source
 	gofmt -s -w .

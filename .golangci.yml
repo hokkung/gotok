@@ -1,0 +1,45 @@
+# golangci-lint configuration (v2 schema).
+#
+# Run with:  make lint
+# Verify:    golangci-lint config verify
+# Install:   brew install golangci-lint   (macOS)
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  # Start from a clean slate: nothing is on by default, opt in explicitly.
+  default: none
+  enable:
+    - errcheck       # unchecked errors
+    - govet          # 'go vet' suspicious constructs
+    - ineffassign    # assignments never read
+    - staticcheck    # SA + S + ST checks (incl. gosimple/typecheck in v2)
+    - unused         # dead code
+    - bodyclose      # unclosed http.Response.Body
+    - misspell       # spelling mistakes in comments/strings
+    - unconvert      # unnecessary type conversions
+    - gocritic       # common-mistake heuristics
+    - gocyclo        # cyclomatic complexity
+    - revive         # golint-style, configurable rules
+  settings:
+    errcheck:
+      # Cleanup calls that are safe to ignore by Go convention:
+      #  - rows.Close() in a defer after a scan loop (error is non-actionable)
+      #  - tx.Rollback() in a defer (returns ErrTxDone after Commit — a no-op)
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+    gocyclo:
+      min-complexity: 20
+  exclusions:
+    paths:
+      - "third_party$"
+      - "builtin$"
+
+issues:
+  # Don't cap reporting — surface everything so nothing hides behind a limit.
+  max-issues-per-linter: 0
+  max-same-issues: 0
