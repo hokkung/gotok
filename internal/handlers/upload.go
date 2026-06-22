@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"live/internal/models"
 )
@@ -89,7 +89,7 @@ func (h *Handlers) Upload(c *gin.Context) {
 	})
 	if err != nil {
 		if rmErr := os.Remove(dst); rmErr != nil {
-			log.Printf("remove orphaned upload %s: %v", dst, rmErr)
+			h.logger.Error("remove orphaned upload", zap.String("path", dst), zap.Error(rmErr))
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create record"})
 		return
