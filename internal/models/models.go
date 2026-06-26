@@ -53,5 +53,6 @@ type User struct {
 	Name           string    `json:"name"`
 	Email          string    `json:"email"`
 	AvatarURL      string    `json:"avatar_url"`
+	Bio            string    `json:"bio"`
 	CreatedAt      time.Time `json:"created_at"`
 }

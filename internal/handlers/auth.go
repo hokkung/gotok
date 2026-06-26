@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"live/internal/middleware"
+	"github.com/hokkung/gotok/internal/middleware"
 )
 
 // sessionTTL is how long a login session stays valid.

@@ -284,9 +284,10 @@ a { color: inherit; }
 .profile-name { font-size: 20px; font-weight: 700; }
 .profile-stat { font-size: 13px; color: #aaa; }
 .video-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;
+  display: none; grid-template-columns: repeat(3, 1fr); gap: 2px;
   padding: 8px 2px 48px; max-width: 600px; margin: 0 auto;
 }
+.video-grid.active { display: grid; }
 .video-tile {
   position: relative; aspect-ratio: 9 / 16; background: #000; overflow: hidden;
   cursor: pointer; border-radius: 3px;
@@ -303,3 +304,54 @@ a { color: inherit; }
 }
 .tile-stats { font-size: 11px; opacity: .85; margin-top: 2px; }
 .grid-empty { grid-column: 1 / -1; text-align: center; color: #888; padding: 40px 0; font-size: 14px; }
+
+/* Profile avatar image + medium badge used in the edit modal. */
+.avatar-img { border-radius: 50%; object-fit: cover; background: #ff3b5c; }
+.avatar-md { width: 56px; height: 56px; font-size: 24px; }
+
+/* Profile bio + edit button. */
+.profile-bio {
+  font-size: 14px; color: #ddd; max-width: 320px; line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word;
+}
+.edit-profile-btn {
+  margin-top: 8px; padding: 8px 20px; border-radius: 8px; border: 1px solid #444;
+  background: #1b1b20; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.edit-profile-btn:hover { border-color: #ff3b5c; }
+
+/* Profile tabs (Videos / Liked). Sticky under the top nav. */
+.profile-tabs {
+  display: flex; max-width: 600px; margin: 0 auto; position: sticky; top: 0;
+  background: #0f0f12; border-bottom: 1px solid #222; z-index: 5;
+}
+.profile-tab {
+  flex: 1; padding: 14px 0; background: none; border: none; color: #888;
+  font-size: 14px; font-weight: 600; cursor: pointer; position: relative;
+}
+.profile-tab.active { color: #fff; }
+.profile-tab.active::after {
+  content: ''; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 40px; height: 2px; background: #ff3b5c; border-radius: 2px;
+}
+
+/* Edit-profile modal (reuses the modal-overlay look). */
+.edit-sheet {
+  width: 100%; max-width: 560px; background: #161618; border-radius: 16px 16px 0 0;
+  display: flex; flex-direction: column; animation: sheetUp .25s ease;
+}
+.edit-form { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.edit-avatar {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer;
+  color: #ff3b5c; font-size: 13px; font-weight: 600;
+}
+.edit-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #aaa; }
+.edit-field input, .edit-field textarea {
+  padding: 11px 13px; border-radius: 10px; border: 1px solid #333;
+  background: #1b1b20; color: #fff; font-size: 15px; font-family: inherit; resize: vertical;
+}
+#editSubmit {
+  padding: 13px; border: none; border-radius: 10px;
+  background: #ff3b5c; color: #fff; font-weight: 700; font-size: 16px; cursor: pointer;
+}
+#editSubmit:disabled { opacity: .6; cursor: default; }

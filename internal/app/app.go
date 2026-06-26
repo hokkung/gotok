@@ -1,6 +1,5 @@
-// Command gotok is a minimal, single-binary TikTok-style vertical-video web
-// app: Gin + SQLite + vanilla JS, no frontend build step.
-package main
+// Package app wires the Gin engine, middleware, and route registration for GoTok.
+package app
 
 import (
 	"net/http"
@@ -8,37 +7,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"live/internal/config"
-	"live/internal/handlers"
-	"live/internal/logger"
-	"live/internal/middleware"
-	"live/internal/store"
+	"github.com/hokkung/gotok/internal/config"
+	"github.com/hokkung/gotok/internal/handlers"
+	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/store"
 )
 
-func main() {
-	// Build the logger first so every subsequent step (config, store, server)
-	// can report through zap. If zap itself fails to initialise there is no
-	// logger to log with, so we panic — a genuine environment error.
-	lg, err := logger.New()
-	if err != nil {
-		panic("init logger: " + err.Error())
-	}
-	defer func() { _ = lg.Sync() }()
-
-	cfg, err := config.Load()
-	if err != nil {
-		lg.Fatal("config", zap.Error(err))
-	}
-	st, err := store.New(cfg.DBPath, lg)
-	if err != nil {
-		lg.Fatal("store", zap.Error(err))
-	}
-	defer func() {
-		if err := st.Close(); err != nil {
-			lg.Error("close store", zap.Error(err))
-		}
-	}()
-
+// Run builds the HTTP server (Gin engine, middleware, routes) and blocks until
+// the server stops. cfg, st, and lg must already be initialised by the caller.
+func Run(cfg *config.Config, st *store.Store, lg *zap.Logger) {
 	// gin.New() gives a bare engine; we add the zap-backed logger + recovery
 	// middleware (replacing gin.Default's std-library logging) and then Auth.
 	r := gin.New()
@@ -49,6 +26,18 @@ func main() {
 
 	h := handlers.New(cfg, st, lg)
 
+	registerRoutes(r, h)
+
+	lg.Info("GoTok listening", zap.String("addr", cfg.ListenAddr))
+	if err := r.Run(cfg.ListenAddr); err != nil {
+		// lg.Fatal would skip deferred cleanup in main; log and return instead so
+		// the store closes cleanly on shutdown.
+		lg.Error("server", zap.Error(err))
+	}
+}
+
+// registerRoutes wires every page and API endpoint onto the engine.
+func registerRoutes(r *gin.Engine, h *handlers.Handlers) {
 	r.Static("/static", "./web/static")
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/feed") })
 	r.GET("/feed", h.FeedPage)
@@ -68,18 +57,13 @@ func main() {
 	{
 		api.GET("/videos", h.ListVideos)
 		api.GET("/users/:id/videos", h.ListVideosByUser)
+		api.GET("/users/:id/liked", h.ListLikedVideos)
 		api.GET("/me", h.Me)
 		api.POST("/videos/:id/view", h.View)
 		api.POST("/videos/:id/like", middleware.RequireAuth(), h.ToggleLike)
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.POST("/videos/:id/comments", middleware.RequireAuth(), h.CreateComment)
 		api.POST("/upload", middleware.RequireAuth(), h.Upload)
-	}
-
-	lg.Info("GoTok listening", zap.String("addr", cfg.ListenAddr))
-	if err := r.Run(cfg.ListenAddr); err != nil {
-		// lg.Fatal would skip the deferred st.Close(); log and return instead so
-		// the store closes cleanly on shutdown.
-		lg.Error("server", zap.Error(err))
+		api.POST("/profile", middleware.RequireAuth(), h.EditProfile)
 	}
 }

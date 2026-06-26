@@ -6,9 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"live/internal/config"
-	"live/internal/middleware"
-	"live/internal/store"
+	"github.com/hokkung/gotok/internal/config"
+	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/store"
 )
 
 // Handlers groups all HTTP handlers and their dependencies.

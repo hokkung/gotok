@@ -11,7 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"live/internal/models"
+	"github.com/hokkung/gotok/internal/models"
 )
 
 // Store wraps the database connection and provides data access.
@@ -80,6 +80,7 @@ func (s *Store) migrate() error {
 		name TEXT NOT NULL DEFAULT '',
 		email TEXT NOT NULL DEFAULT '',
 		avatar_url TEXT NOT NULL DEFAULT '',
+		bio TEXT NOT NULL DEFAULT '',
 		created_at INTEGER NOT NULL,
 		UNIQUE(provider, provider_user_id)
 	);
@@ -101,6 +102,10 @@ func (s *Store) migrate() error {
 	// Backfill user_id on databases created before uploads were attributed to a
 	// user. Legacy uploads keep user_id = 0 ("unknown uploader").
 	if err := s.addColumnIfMissing("videos", "user_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	// Backfill bio on databases created before the profile bio feature.
+	if err := s.addColumnIfMissing("users", "bio", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	// Migrate likes/comments from anonymous client_id keying to user_id keying.
@@ -133,7 +138,8 @@ func (s *Store) migrateLikesComments() error {
 		);
 		DROP TABLE likes;
 		ALTER TABLE likes_new RENAME TO likes;
-		CREATE INDEX IF NOT EXISTS idx_likes_video ON likes(video_id);
+	CREATE INDEX IF NOT EXISTS idx_likes_video ON likes(video_id);
+	CREATE INDEX IF NOT EXISTS idx_likes_user ON likes(user_id, id DESC);
 
 		CREATE TABLE comments_new (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -233,6 +239,64 @@ func (s *Store) listVideosPage(viewerID, ownerID, afterID int64, limit int) ([]m
 func (s *Store) CountVideosByUser(userID int64) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM videos WHERE user_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
+// ListLikedVideos returns a page of videos the given owner has liked, most
+// recently liked first, with the requesting viewer's like state. Pagination is
+// keyed on the like row's id (afterLikeID=0 means first page) because liked
+// ordering is by recency, not by video id. It returns the videos together with
+// the next cursor (the last returned like id, or 0 when the page is exhausted).
+func (s *Store) ListLikedVideos(ownerID, viewerID, afterLikeID int64, limit int) ([]models.VideoWithLike, int64, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := s.db.Query(`
+		SELECT v.id, v.user_id, v.title, v.filename, v.filepath, v.mime_type, v.size,
+		       COALESCE(u.name, '') AS author_name,
+		       v.likes_count, v.comments_count, v.views, v.created_at,
+		       EXISTS(SELECT 1 FROM likes l2 WHERE l2.user_id = ? AND l2.video_id = v.id) AS liked,
+		       l.id AS like_id
+		FROM likes l
+		JOIN videos v ON v.id = l.video_id
+		LEFT JOIN users u ON u.id = v.user_id
+		WHERE l.user_id = ? AND (? = 0 OR l.id < ?)
+		ORDER BY l.id DESC
+		LIMIT ?`,
+		viewerID, ownerID, afterLikeID, afterLikeID, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var out []models.VideoWithLike
+	var lastLikeID int64
+	for rows.Next() {
+		var v models.Video
+		var created int64
+		var liked bool
+		var likeID int64
+		if err := rows.Scan(&v.ID, &v.UserID, &v.Title, &v.Filename, &v.FilePath, &v.MimeType,
+			&v.Size, &v.AuthorName, &v.LikesCount, &v.CommentsCount, &v.Views, &created, &liked, &likeID); err != nil {
+			return nil, 0, err
+		}
+		v.CreatedAt = time.Unix(created, 0)
+		out = append(out, models.VideoWithLike{Video: v, Liked: liked})
+		lastLikeID = likeID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if len(out) < limit {
+		return out, 0, nil // page exhausted → no next cursor
+	}
+	return out, lastLikeID, nil
+}
+
+// CountLikedVideos returns how many videos a user has liked.
+func (s *Store) CountLikedVideos(userID int64) (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM likes WHERE user_id = ?`, userID).Scan(&n)
 	return n, err
 }
 
@@ -389,20 +453,40 @@ func (s *Store) CreateOrUpdateUser(provider, providerUserID, name, email, avatar
 	if err != nil {
 		return nil, err
 	}
-	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, created_at
+	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, bio, created_at
 		FROM users WHERE provider = ? AND provider_user_id = ?`, provider, providerUserID)
 }
 
 // GetUser returns a user by id.
 func (s *Store) GetUser(id int64) (*models.User, error) {
-	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, created_at
+	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, bio, created_at
 		FROM users WHERE id = ?`, id)
+}
+
+// UpdateProfile updates the editable profile fields (name, bio, avatar) for a
+// user. avatarURL is the web path of a freshly uploaded avatar (e.g.
+// "/uploads/avatar-xxxx.jpg"); pass empty to keep the existing avatar.
+func (s *Store) UpdateProfile(userID int64, name, bio, avatarURL string) (*models.User, error) {
+	if avatarURL != "" {
+		if _, err := s.db.Exec(
+			`UPDATE users SET name = ?, bio = ?, avatar_url = ? WHERE id = ?`,
+			name, bio, avatarURL, userID); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err := s.db.Exec(
+			`UPDATE users SET name = ?, bio = ? WHERE id = ?`,
+			name, bio, userID); err != nil {
+			return nil, err
+		}
+	}
+	return s.GetUser(userID)
 }
 
 // GetUserBySession returns the user behind a live (non-expired) session token.
 // Returns sql.ErrNoRows when the token is unknown or expired.
 func (s *Store) GetUserBySession(token string) (*models.User, error) {
-	return s.getUser(`SELECT u.id, u.provider, u.provider_user_id, u.name, u.email, u.avatar_url, u.created_at
+	return s.getUser(`SELECT u.id, u.provider, u.provider_user_id, u.name, u.email, u.avatar_url, u.bio, u.created_at
 		FROM users u
 		JOIN sessions s ON s.user_id = u.id
 		WHERE s.token = ? AND s.expires_at > ?`, token, time.Now().Unix())
@@ -412,7 +496,7 @@ func (s *Store) getUser(query string, args ...any) (*models.User, error) {
 	var u models.User
 	var created int64
 	err := s.db.QueryRow(query, args...).Scan(
-		&u.ID, &u.Provider, &u.ProviderUserID, &u.Name, &u.Email, &u.AvatarURL, &created)
+		&u.ID, &u.Provider, &u.ProviderUserID, &u.Name, &u.Email, &u.AvatarURL, &u.Bio, &created)
 	if err != nil {
 		return nil, err
 	}
