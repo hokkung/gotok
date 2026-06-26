@@ -81,6 +81,7 @@ function renderCard(v) {
     '</div>' +
     '<div class="overlay">' +
       '<div class="title">' + escapeHtml(v.title) + '</div>' +
+      authorRow(v) +
       '<div class="meta">' + formatDate(v.created_at) + '</div>' +
     '</div>' +
     '<div class="seek-bar">' +
@@ -116,6 +117,17 @@ function renderCard(v) {
   card.querySelector('.action-btn.comment').addEventListener('click', () => openComments(card, v.id));
   wireSeekBar(card, video);
   observer.observe(card);
+}
+
+// authorRow renders the uploader line under the title. Legacy videos
+// (user_id 0) show "Unknown uploader" with no profile link.
+function authorRow(v) {
+  const name = v.author_name || 'Unknown uploader';
+  const tag = '@' + escapeHtml(name);
+  if (v.user_id && v.user_id > 0) {
+    return '<a class="author" href="/u/' + v.user_id + '">' + tag + '</a>';
+  }
+  return '<span class="author">' + tag + '</span>';
 }
 
 // formatTime turns a number of seconds into m:ss (e.g. 65 -> "1:05").

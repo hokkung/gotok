@@ -8,9 +8,10 @@ A complete walkthrough of how the **GoTok** system works. Read this top‑to‑b
 
 GoTok is a **single‑binary, TikTok‑style vertical‑video web app** written in Go.
 
-- **Browsing is anonymous; interactions require login.** Every visitor gets a stable `cid` cookie, and can browse the feed and read comments freely. **Liking and commenting are gated behind a session login** (SSO via Google/Facebook is stubbed; a demo login is wired up so the flow is testable now).
+- **Browsing is anonymous; interactions require login.** Every visitor gets a stable `cid` cookie, and can browse the feed and read comments freely. **Liking, commenting, and uploading are gated behind a session login** (SSO via Google/Facebook is stubbed; a demo login is wired up so the flow is testable now).
 - **Vertical "for you" feed** — full‑screen videos that auto‑play as you scroll, snap one per screen, mute/unmute on tap, like on double‑tap.
-- **Upload your own videos** (mp4 / webm / mov / mkv, up to 200 MB), stored on local disk.
+- **Upload your own videos** (mp4 / webm / mov / mkv, up to 200 MB), stored on local disk and **attributed to the uploading user**.
+- **User profiles** (`/u/:id`) — every video records its uploader; a profile page lists a creator's videos in a 3‑column grid via `ListVideosByUser`.
 - **Likes, comments, view counting**, and infinite scroll pagination — all backed by a SQLite database.
 
 It is intentionally small and self‑contained: one Go binary, one SQLite file, one uploads folder.
@@ -375,6 +376,7 @@ First run auto‑creates `data/`, `data/uploads/`, `data/app.db`, and `data/cook
 | Change the feed page size | the `20` in `feed.js` (`loadPage`) and the default in `store.ListVideos` / `handlers.ListVideos`. |
 | Change look & feel | `web/static/css/style.css`. |
 | Change feed interactions (gestures) | `web/static/js/feed.js`. |
+| Add a per‑user page (e.g. "liked videos") | new handler in `handlers/profile.go` + a `store.go` query reusing the `listVideosPage` keyset shape, registered in `main.go`. |
 | Implement Google/Facebook SSO | `handlers/LoginGoogle`/`LoginFacebook` (currently return 501) — add OAuth redirect → callback → `store.CreateOrUpdateUser`. |
 | Sign the session cookie | use `cfg.CookieSecret` (already loaded) with Gin's secure cookie mechanism. |
 
@@ -386,7 +388,8 @@ First run auto‑creates `data/`, `data/uploads/`, `data/app.db`, and `data/cook
 - **SSO is stubbed.** Google/Facebook endpoints return 501 "coming soon"; only the demo login (`/auth/demo`) actually creates a session. Wire real OAuth (redirect → provider → callback → `CreateOrUpdateUser`) into `LoginGoogle`/`LoginFacebook` to enable them.
 - **`cookie_secret` is generated but not used** to sign the `session` cookie; the token is an unsigned random string, so it can be forged/spoofed by a knowledgeable client. Fine for a toy, worth tightening for production.
 - **Single‑process only.** SQLite + local uploads mean this won't horizontally scale as‑is. For multi‑instance you'd move uploads to object storage and either shard SQLite or move to Postgres.
-- **No content moderation / auth on upload** — anyone who can reach the port can upload 200 MB videos. Put it behind auth or a reverse proxy with limits before exposing publicly.
+- **No content moderation on upload** — uploads now require a login, but there's no size/scan/abuse protection beyond the type allow‑list and 200 MB cap. Add a reverse proxy with rate limits before exposing publicly.
+- **Legacy videos have no uploader.** Videos created before ownership was added keep `user_id = 0`; they show "Unknown uploader" with no profile link.
 - **View counting is client‑initiated** (`POST /view`) and deduped only in‑memory per page load (`seen` Set). Refreshing the page re‑counts. A server‑side dedupe (e.g. by user+video with a window) would be more accurate.
 - **Comments have no edit/delete, no threading, no replies.**
 - **`time` stored as unix seconds** loses sub‑second precision (fine here; upload filenames use `UnixNano` so they're still unique).

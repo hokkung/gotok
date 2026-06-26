@@ -3,11 +3,14 @@
 A minimal, single-binary **TikTok-style vertical-video web app** written in Go.
 No frontend build step — just Gin, SQLite, and vanilla JS.
 
-- 🔐 **Login required to like / comment** — anonymous browsing is open, but
-  interactions are gated behind a session. SSO (Google / Facebook) is stubbed;
-  a built-in demo login lets you try the flow now.
+- 🔐 **Login required to like / comment / upload** — anonymous browsing is open,
+  but interactions and uploads are gated behind a session. SSO (Google / Facebook)
+  is stubbed; a built-in demo login lets you try the flow now.
 - 📱 **Vertical feed** with full-screen auto-play, scroll-snap, tap-to-unmute, double-tap-to-like.
-- ⬆️ **Upload** mp4 / webm / mov / mkv (up to 200 MB), stored on local disk.
+- ⬆️ **Upload** mp4 / webm / mov / mkv (up to 200 MB), stored on local disk and
+  attributed to your account.
+- 👤 **User profiles** (`/u/:id`) — every upload is owned by a user; browse a
+  creator's videos in a 3-column grid.
 - ❤️ **Likes, comments, view counts** backed by SQLite.
 - ♾️ **Infinite scroll** via keyset cursor pagination.
 
@@ -83,6 +86,7 @@ Full design rationale, data-flow diagrams, the complete API reference, and a
 
 ## Status
 
-Toy / single-instance demo. Known limits before going to production: no auth on
-upload, unsigned client cookie, single-process SQLite, no tests, client-counted views.
-See ARCHITECTURE.md §12 for the full list.
+Toy / single-instance demo. Videos are attributed to the uploading user and
+browsable on per-user profile pages (`/u/:id`). Known limits before going to
+production: unsigned client cookie, single-process SQLite, no tests,
+client-counted views, no video thumbnails. See ARCHITECTURE.md §12 for the full list.

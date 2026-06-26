@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"live/internal/middleware"
 	"live/internal/models"
 )
 
@@ -80,7 +81,9 @@ func (h *Handlers) Upload(c *gin.Context) {
 		return
 	}
 
+	u := middleware.UserFromContext(c)
 	id, err := h.store.CreateVideo(&models.Video{
+		UserID:   u.ID,
 		Title:    title,
 		Filename: stored,
 		FilePath: dst,

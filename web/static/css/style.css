@@ -262,3 +262,44 @@ a { color: inherit; }
 .auth-divider::before, .auth-divider::after {
   content: ''; flex: 1; height: 1px; background: #2a2a2e;
 }
+
+/* ----- Feed card: uploader line under the title ----- */
+.overlay .author {
+  display: inline-block; margin-top: 5px;
+  font-size: 14px; font-weight: 600; opacity: .92;
+  text-decoration: none; pointer-events: auto;
+}
+.overlay .author:hover { opacity: 1; }
+
+/* ----- Profile page ----- */
+.profile-page {
+  height: 100vh; height: 100dvh; overflow-y: auto;
+  padding-top: 52px; background: #0f0f12;
+}
+.profile-header {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 22px 16px 16px; text-align: center;
+}
+.avatar-lg { width: 72px; height: 72px; font-size: 30px; margin-bottom: 3px; }
+.profile-name { font-size: 20px; font-weight: 700; }
+.profile-stat { font-size: 13px; color: #aaa; }
+.video-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;
+  padding: 8px 2px 48px; max-width: 600px; margin: 0 auto;
+}
+.video-tile {
+  position: relative; aspect-ratio: 9 / 16; background: #000; overflow: hidden;
+  cursor: pointer; border-radius: 3px;
+}
+.video-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile-overlay {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 6px 5px;
+  background: linear-gradient(0deg, rgba(0,0,0,.8), transparent);
+  pointer-events: none;
+}
+.tile-title {
+  font-size: 12px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-stats { font-size: 11px; opacity: .85; margin-top: 2px; }
+.grid-empty { grid-column: 1 / -1; text-align: center; color: #888; padding: 40px 0; font-size: 14px; }

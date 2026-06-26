@@ -54,6 +54,7 @@ func main() {
 	r.GET("/feed", h.FeedPage)
 	r.GET("/upload", h.UploadPage)
 	r.GET("/uploads/:filename", h.ServeFile)
+	r.GET("/u/:id", h.ProfilePage)
 
 	// Auth pages and actions. Google & Facebook SSO are stubs (501) for now; the
 	// demo login lets the auth-gated actions be exercised end-to-end.
@@ -66,12 +67,13 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.GET("/videos", h.ListVideos)
+		api.GET("/users/:id/videos", h.ListVideosByUser)
 		api.GET("/me", h.Me)
 		api.POST("/videos/:id/view", h.View)
 		api.POST("/videos/:id/like", middleware.RequireAuth(), h.ToggleLike)
 		api.GET("/videos/:id/comments", h.ListComments)
 		api.POST("/videos/:id/comments", middleware.RequireAuth(), h.CreateComment)
-		api.POST("/upload", h.Upload)
+		api.POST("/upload", middleware.RequireAuth(), h.Upload)
 	}
 
 	lg.Info("GoTok listening", zap.String("addr", cfg.ListenAddr))
