@@ -1,17 +1,36 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
-	"live/internal/middleware"
+	"github.com/hokkung/gotok/internal/middleware"
 )
 
-// ProfilePage renders a user's profile: their avatar/name and a grid of the
-// videos they've uploaded. An unknown user id renders a 404.
+// allowedImage maps an accepted avatar MIME type to its file extension.
+var allowedImage = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/webp": ".webp",
+}
+
+// maxBioRunes caps the profile bio length (TikTok uses 80; we allow a bit more).
+const maxBioRunes = 160
+
+// maxAvatarMB is the per-upload size cap for a profile photo.
+const maxAvatarMB = 5
+
+// ProfilePage renders a user's profile: their avatar/name/bio, video & liked
+// counts, and a tabbed grid of uploaded or liked videos. An unknown user id
+// renders a 404.
 func (h *Handlers) ProfilePage(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -23,11 +42,21 @@ func (h *Handlers) ProfilePage(c *gin.Context) {
 		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	count, _ := h.store.CountVideosByUser(id)
+	videoCount, _ := h.store.CountVideosByUser(id)
+	likedCount, _ := h.store.CountLikedVideos(id)
+
 	data := h.base(c, profile.Name)
 	data["Profile"] = profile
-	data["VideoCount"] = count
+	data["VideoCount"] = videoCount
+	data["LikedCount"] = likedCount
 	data["Initial"] = profileInitial(profile.Name)
+	// IsOwner lets the template show the "Edit profile" button only to the
+	// profile owner.
+	isOwner := false
+	if u := middleware.UserFromContext(c); u != nil && u.ID == id {
+		isOwner = true
+	}
+	data["IsOwner"] = isOwner
 	c.HTML(http.StatusOK, "profile.html", data)
 }
 
@@ -59,6 +88,110 @@ func (h *Handlers) ListVideosByUser(c *gin.Context) {
 		next = videos[len(videos)-1].ID
 	}
 	c.JSON(http.StatusOK, gin.H{"videos": videos, "next": next})
+}
+
+// ListLikedVideos returns a JSON page of the videos a user has liked (most
+// recently liked first) with the requesting viewer's like state. Pagination is
+// by like id via the generic cursor param. Query params: cursor=<id>, limit.
+func (h *Handlers) ListLikedVideos(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
+		return
+	}
+	var viewerID int64
+	if u := middleware.UserFromContext(c); u != nil {
+		viewerID = u.ID
+	}
+	cursor, _ := strconv.ParseInt(c.DefaultQuery("cursor", "0"), 10, 64)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "24"))
+	if limit <= 0 || limit > 50 {
+		limit = 24
+	}
+
+	videos, next, err := h.store.ListLikedVideos(id, viewerID, cursor, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load liked videos"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"videos": videos, "next": next})
+}
+
+// EditProfile updates the current user's editable profile fields (name, bio, and
+// optionally a new avatar image). Only the logged-in user can edit their own
+// profile. On success it returns the updated user so the client can refresh.
+func (h *Handlers) EditProfile(c *gin.Context) {
+	u := middleware.UserFromContext(c)
+
+	name := strings.TrimSpace(c.PostForm("name"))
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	bio := strings.TrimSpace(c.PostForm("bio"))
+	if ru := []rune(bio); len(ru) > maxBioRunes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bio too long (max %d characters)", maxBioRunes)})
+		return
+	}
+
+	avatarURL := "" // empty → keep existing avatar in the store
+	file, err := c.FormFile("file")
+	if err == nil {
+		// An avatar was supplied: validate type + size, store it on disk.
+		mime := file.Header.Get("Content-Type")
+		ext, ok := allowedImage[mime]
+		if !ok {
+			// Fall back to the file extension.
+			fext := strings.ToLower(filepath.Ext(file.Filename))
+			if m := extToImageMime(fext); m != "" {
+				ext = fext
+			}
+		}
+		if ext == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported image type; use jpg, png or webp"})
+			return
+		}
+		if file.Size > maxAvatarMB*1024*1024 {
+			c.JSON(http.StatusRequestEntityTooLarge,
+				gin.H{"error": fmt.Sprintf("image too large (max %dMB)", maxAvatarMB)})
+			return
+		}
+
+		stored := fmt.Sprintf("avatar-%d-%s%s", time.Now().UnixNano(), randID(6), ext)
+		dst := filepath.Join(h.cfg.UploadDir, stored)
+		if err := c.SaveUploadedFile(file, dst); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not save image"})
+			return
+		}
+		// Remove the previous local avatar (if any) to avoid orphaned files.
+		if old := u.AvatarURL; strings.HasPrefix(old, "/uploads/") {
+			if rmErr := os.Remove(filepath.Join(h.cfg.UploadDir, filepath.Base(old))); rmErr != nil && !os.IsNotExist(rmErr) {
+				h.logger.Warn("remove old avatar", zap.String("path", old))
+			}
+		}
+		avatarURL = "/uploads/" + stored
+	}
+
+	updated, err := h.store.UpdateProfile(u.ID, name, bio, avatarURL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update profile"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": updated})
+}
+
+// extToImageMime reverses a file extension to an image MIME type (returns "" for
+// unknown), mirroring the video upload fallback logic.
+func extToImageMime(ext string) string {
+	switch ext {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	}
+	return ""
 }
 
 // profileInitial returns the uppercase first rune of a name for the avatar

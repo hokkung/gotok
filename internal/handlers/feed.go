@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"live/internal/middleware"
+	"github.com/hokkung/gotok/internal/middleware"
 )
 
 // FeedPage renders the TikTok-style vertical feed.

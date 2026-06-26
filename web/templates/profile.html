@@ -1,14 +1,57 @@
 {{define "profile.html"}}
 {{template "header" .}}
-<div class="profile-page">
+<div class="profile-page" data-isowner="{{.IsOwner}}">
   <div class="profile-header">
-    <div class="avatar avatar-lg">{{.Initial}}</div>
+    {{if .Profile.AvatarURL}}
+      <img class="avatar-img avatar-lg" src="{{.Profile.AvatarURL}}" alt="{{.Profile.Name}}">
+    {{else}}
+      <div class="avatar avatar-lg">{{.Initial}}</div>
+    {{end}}
     <div class="profile-name">{{.Profile.Name}}</div>
-    <div class="profile-stat">{{.VideoCount}} videos</div>
+    {{if .Profile.Bio}}
+      <div class="profile-bio">{{.Profile.Bio}}</div>
+    {{end}}
+    <div class="profile-stat">{{.VideoCount}} videos · {{.LikedCount}} liked</div>
+    {{if .IsOwner}}
+      <button id="editProfileBtn" class="edit-profile-btn" type="button">Edit profile</button>
+    {{end}}
   </div>
-  <div id="grid" class="video-grid" data-user-id="{{.Profile.ID}}"></div>
+  <div class="profile-tabs">
+    <button class="profile-tab active" data-tab="videos" type="button">Videos</button>
+    <button class="profile-tab" data-tab="liked" type="button">❤ Liked</button>
+  </div>
+  <div id="grid" class="video-grid active" data-user-id="{{.Profile.ID}}"></div>
+  <div id="gridLiked" class="video-grid" data-user-id="{{.Profile.ID}}"></div>
   <div id="profileLoader" class="loader">Loading…</div>
 </div>
+
+<div id="editModal" class="modal-overlay">
+  <div class="edit-sheet">
+    <div class="sheet-header">
+      <div class="sheet-title">Edit profile</div>
+      <button class="sheet-close" id="editClose" type="button">&times;</button>
+    </div>
+    <form id="editForm" class="edit-form">
+      <label class="edit-avatar">
+        <img id="editAvatarPreview" class="avatar-img avatar-md" src="{{.Profile.AvatarURL}}" alt="" hidden>
+        <div id="editAvatarBadge" class="avatar avatar-md">{{.Initial}}</div>
+        <span>Change photo</span>
+        <input type="file" name="file" accept="image/png,image/jpeg,image/webp" hidden>
+      </label>
+      <label class="edit-field">
+        <span>Name</span>
+        <input type="text" name="name" value="{{.Profile.Name}}" maxlength="40" required>
+      </label>
+      <label class="edit-field">
+        <span>Bio</span>
+        <textarea name="bio" rows="3" maxlength="160" placeholder="Add a bio">{{.Profile.Bio}}</textarea>
+      </label>
+      <div id="editStatus" class="status"></div>
+      <button type="submit" id="editSubmit">Save</button>
+    </form>
+  </div>
+</div>
+
 <script src="/static/js/profile.js"></script>
 {{template "footer" .}}
 {{end}}

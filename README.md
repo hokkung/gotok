@@ -52,7 +52,8 @@ Browser ──session cookie──► Gin router ──► handlers ──► st
                           └── /api/*  (JSON: videos, likes, comments, upload)
 ```
 
-- **`main.go`** wires `config → store → router → handlers`.
+- **`cmd/gotok/main.go`** wires `config → store → app.Run()` (thin entry point).
+- **`internal/app/app.go`** builds the Gin engine and registers all routes.
 - **`internal/store/store.go`** owns the SQLite schema and all SQL (denormalized like/comment counts, keyset pagination, transactional updates).
 - **`internal/middleware/auth.go`** loads the logged-in user from the `session` cookie (nil when anonymous); `RequireAuth()` gates likes/comments.
 - **`internal/handlers/`** one file per feature (feed, upload, like, comment, video).
@@ -63,13 +64,14 @@ Browser ──session cookie──► Gin router ──► handlers ──► st
 ## Project structure
 
 ```
-live/
-├── main.go                # entry point + route registration
+gotok/
+├── cmd/gotok/main.go      # thin entry point + dependency wiring
 ├── internal/
+│   ├── app/               # gin engine setup + route registration
 │   ├── config/            # config + cookie-secret bootstrap
 │   ├── models/            # Video / Like / Comment structs
 │   ├── store/             # SQLite layer (schema + queries)
-│   ├── middleware/        # anonymous cid cookie
+│   ├── middleware/        # auth, logging, recovery
 │   └── handlers/          # HTTP handlers, split by feature
 ├── web/
 │   ├── templates/         # layout, feed, upload (Gin html/template)

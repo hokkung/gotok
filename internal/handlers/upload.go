@@ -11,8 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"live/internal/middleware"
-	"live/internal/models"
+	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/models"
 )
 
 // allowedVideo maps an accepted MIME type to its file extension.

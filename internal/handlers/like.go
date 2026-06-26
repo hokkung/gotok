@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"live/internal/middleware"
+	"github.com/hokkung/gotok/internal/middleware"
 )
 
 // ToggleLike flips the requesting client's like on a video and returns the new

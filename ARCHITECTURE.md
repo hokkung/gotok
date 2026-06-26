@@ -22,7 +22,7 @@ It is intentionally small and self‑contained: one Go binary, one SQLite file, 
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| Language | **Go 1.25.6** | Single `main` package + `internal/*` packages. |
+| Language | **Go 1.25.6** | `cmd/gotok` entry point + `internal/*` packages. |
 | Web framework | **Gin** (`github.com/gin-gonic/gin v1.12.0`) | HTTP routing, middleware, HTML templates, multipart upload. |
 | Database | **SQLite** via `modernc.org/sqlite` | Pure‑Go driver (no CGO required). |
 | Templating | Gin's built‑in `html/template` loader | `LoadHTMLGlob("web/templates/*")`. |
@@ -36,17 +36,19 @@ Key indirect deps worth knowing: `quic-go` (HTTP/3 capable), `google/uuid`, `go-
 ## 3. Project Structure
 
 ```
-live/
-├── main.go                    # Entry point: wires config → store → router → handlers
-├── go.mod / go.sum            # Module `live`, Go 1.25.6
+gotok/
+├── cmd/
+│   └── gotok/main.go          # Thin entry point: wires config → store → app.Run()
+├── go.mod / go.sum            # Module `github.com/hokkung/gotok`, Go 1.25.6
 ├── Makefile                   # Dev tasks: run, build, serve, vet, fmt, tidy, test, clean, reset
 ├── gotok                      # Compiled binary (build artifact)
 │
 ├── internal/                  # All non‑main Go code (Go's "internal" import protection)
+│   ├── app/app.go             # Gin engine setup + route registration (called by main)
 │   ├── config/config.go       # App config + on‑disk cookie‑secret bootstrap
 │   ├── models/models.go       # Plain structs: Video, VideoWithLike, Like, Comment
 │   ├── store/store.go         # SQLite layer: open, migrate, all SQL queries
-│   ├── middleware/client.go   # Anonymous `cid` cookie middleware
+│   ├── middleware/             # Gin middleware: auth, logging, recovery
 │   └── handlers/              # HTTP handlers (one concern per file)
 │       ├── handlers.go        #   Handlers struct + constructor (dependency holder)
 │       ├── helpers.go         #   randID() helper for unique filenames
@@ -54,7 +56,9 @@ live/
 │       ├── upload.go          #   UploadPage + Upload (multipart validation/storage)
 │       ├── video.go           #   ServeFile (streams video w/ Range support)
 │       ├── like.go            #   ToggleLike + View
-│       └── comment.go         #   ListComments + CreateComment
+│       ├── comment.go         #   ListComments + CreateComment
+│       ├── auth.go            #   Login/Logout/Me + session management
+│       └── profile.go         #   ProfilePage + EditProfile
 │
 ├── web/                       # Frontend assets
 │   ├── templates/             # Gin HTML templates (header/footer partials + pages)
@@ -74,16 +78,16 @@ live/
     └── uploads/               # Uploaded video files
 ```
 
-> **Convention:** business logic lives in `internal/`, split by *concern* (config / models / store / middleware / handlers). Handlers are further split by *feature* (feed, upload, like, comment, video). Follow this pattern when adding new features.
+> **Convention:** business logic lives in `internal/`, split by *concern* (app / config / models / store / middleware / handlers). Handlers are further split by *feature* (feed, upload, like, comment, video). Follow this pattern when adding new features.
 
 ---
 
 ## 4. High‑Level Architecture & Request Flow
 
-### Startup (`main.go`)
+### Startup (`cmd/gotok/main.go` → `internal/app/app.go`)
 
 ```
-config.Load() ──► logger.New() ──► store.New(cfg.DBPath, lg) ──► gin.New()+zap middleware ──► register routes ──► r.Run(:8080)
+config.Load() ──► logger.New() ──► store.New(cfg.DBPath, lg) ──► app.Run(): gin.New()+zap middleware ──► register routes ──► r.Run(:8080)
 ```
 
 1. **`config.Load()`** — ensures `data/` and `data/uploads/` exist; generates and persists a 32‑byte `cookie_secret` on first run (so session tokens survive restarts). Returns hardcoded defaults: `:8080`, 200 MB upload cap, paths under `data/`.
@@ -369,7 +373,7 @@ First run auto‑creates `data/`, `data/uploads/`, `data/app.db`, and `data/cook
 
 | You want to… | Touch this |
 |--------------|------------|
-| Add a new API endpoint | `main.go` (register route) + new method in `internal/handlers/<feature>.go` + store method in `internal/store/store.go`. |
+| Add a new API endpoint | `internal/app/app.go` (register route) + new method in `internal/handlers/<feature>.go` + store method in `internal/store/store.go`. |
 | Change the upload size limit / port | `internal/config/config.go` (`MaxUploadMB`, `ListenAddr`). |
 | Add a new accepted video format | the `allowedVideo` and `extToMime` maps in `internal/handlers/upload.go`. |
 | Add a DB column / table | the `schema` string in `store.go` `migrate()` (+ `addColumnIfMissing` for backfill). |
@@ -398,4 +402,4 @@ First run auto‑creates `data/`, `data/uploads/`, `data/app.db`, and `data/cook
 
 ### TL;DR
 
-GoTok = **Gin + SQLite + vanilla JS** in one Go binary. Session‑based login (SSO stubbed, demo login live), local‑disk uploads, a keyset‑paginated JSON feed rendered client‑side into a scroll‑snapping vertical player, with transactional user‑keyed like/comment counters. Start in `main.go` to see the wiring, drop into `internal/store/store.go` for all data logic, and `web/static/js/feed.js` for all the UX.
+GoTok = **Gin + SQLite + vanilla JS** in one Go binary. Session‑based login (SSO stubbed, demo login live), local‑disk uploads, a keyset‑paginated JSON feed rendered client‑side into a scroll‑snapping vertical player, with transactional user‑keyed like/comment counters. Start in `cmd/gotok/main.go` to see the wiring, `internal/app/app.go` for routes, drop into `internal/store/store.go` for all data logic, and `web/static/js/feed.js` for all the UX.

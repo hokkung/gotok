@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"live/internal/middleware"
+	"github.com/hokkung/gotok/internal/middleware"
 )
 
 // maxCommentLen is the hard cap on a single comment's length.

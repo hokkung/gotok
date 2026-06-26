@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"live/internal/models"
-	"live/internal/store"
+	"github.com/hokkung/gotok/internal/models"
+	"github.com/hokkung/gotok/internal/store"
 )
 
 // SessionCookie is the name of the auth session cookie.

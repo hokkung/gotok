@@ -2,7 +2,7 @@
 # Common dev tasks for the TikTok-style Go web app.
 
 BINARY   := gotok
-PKG      := .
+PKG      := ./cmd/gotok
 ADDR     := :8080
 DATA_DIR := data
 

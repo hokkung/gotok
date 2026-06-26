@@ -1,4 +1,4 @@
-module live
+module github.com/hokkung/gotok
 
 go 1.25.6
 
