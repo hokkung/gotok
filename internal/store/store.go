@@ -45,6 +45,7 @@ func (s *Store) migrate() error {
 	const schema = `
 	CREATE TABLE IF NOT EXISTS videos (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL DEFAULT 0,
 		title TEXT NOT NULL DEFAULT '',
 		filename TEXT NOT NULL,
 		filepath TEXT NOT NULL,
@@ -95,6 +96,11 @@ func (s *Store) migrate() error {
 	}
 	// Backfill comments_count on databases created before this column existed.
 	if err := s.addColumnIfMissing("videos", "comments_count", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	// Backfill user_id on databases created before uploads were attributed to a
+	// user. Legacy uploads keep user_id = 0 ("unknown uploader").
+	if err := s.addColumnIfMissing("videos", "user_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	// Migrate likes/comments from anonymous client_id keying to user_id keying.
@@ -161,9 +167,9 @@ func (s *Store) addColumnIfMissing(table, col, def string) error {
 func (s *Store) CreateVideo(v *models.Video) (int64, error) {
 	now := time.Now().Unix()
 	res, err := s.db.Exec(
-		`INSERT INTO videos (title, filename, filepath, mime_type, size, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		v.Title, v.Filename, v.FilePath, v.MimeType, v.Size, now,
+		`INSERT INTO videos (user_id, title, filename, filepath, mime_type, size, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		v.UserID, v.Title, v.Filename, v.FilePath, v.MimeType, v.Size, now,
 	)
 	if err != nil {
 		return 0, err
@@ -172,21 +178,37 @@ func (s *Store) CreateVideo(v *models.Video) (int64, error) {
 }
 
 // ListVideos returns a page of videos ordered newest first, with each video's
-// like state for the given user (userID=0 means anonymous → liked is always false).
-// afterID=0 means first page.
-func (s *Store) ListVideos(userID int64, afterID int64, limit int) ([]models.VideoWithLike, error) {
+// like state for the given viewer (viewerID=0 means anonymous → liked is always
+// false). afterID=0 means first page.
+func (s *Store) ListVideos(viewerID int64, afterID int64, limit int) ([]models.VideoWithLike, error) {
+	return s.listVideosPage(viewerID, 0, afterID, limit)
+}
+
+// ListVideosByUser returns a page of a single owner's videos, newest first, with
+// the requesting viewer's like state. ownerID is the uploader whose videos are
+// listed; viewerID=0 means anonymous.
+func (s *Store) ListVideosByUser(ownerID, viewerID, afterID int64, limit int) ([]models.VideoWithLike, error) {
+	return s.listVideosPage(viewerID, ownerID, afterID, limit)
+}
+
+// listVideosPage is the shared keyset query behind ListVideos and
+// ListVideosByUser. ownerID <= 0 means no owner filter (the global feed).
+func (s *Store) listVideosPage(viewerID, ownerID, afterID int64, limit int) ([]models.VideoWithLike, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
 	rows, err := s.db.Query(`
-		SELECT v.id, v.title, v.filename, v.filepath, v.mime_type, v.size,
+		SELECT v.id, v.user_id, v.title, v.filename, v.filepath, v.mime_type, v.size,
+		       COALESCE(u.name, '') AS author_name,
 		       v.likes_count, v.comments_count, v.views, v.created_at,
 		       EXISTS(SELECT 1 FROM likes l WHERE l.user_id = ? AND l.video_id = v.id) AS liked
 		FROM videos v
+		LEFT JOIN users u ON u.id = v.user_id
 		WHERE (? = 0 OR v.id < ?)
+		  AND (? = 0 OR v.user_id = ?)
 		ORDER BY v.id DESC
 		LIMIT ?`,
-		userID, afterID, afterID, limit)
+		viewerID, afterID, afterID, ownerID, ownerID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -197,8 +219,8 @@ func (s *Store) ListVideos(userID int64, afterID int64, limit int) ([]models.Vid
 		var v models.Video
 		var created int64
 		var liked bool
-		if err := rows.Scan(&v.ID, &v.Title, &v.Filename, &v.FilePath, &v.MimeType,
-			&v.Size, &v.LikesCount, &v.CommentsCount, &v.Views, &created, &liked); err != nil {
+		if err := rows.Scan(&v.ID, &v.UserID, &v.Title, &v.Filename, &v.FilePath, &v.MimeType,
+			&v.Size, &v.AuthorName, &v.LikesCount, &v.CommentsCount, &v.Views, &created, &liked); err != nil {
 			return nil, err
 		}
 		v.CreatedAt = time.Unix(created, 0)
@@ -207,19 +229,28 @@ func (s *Store) ListVideos(userID int64, afterID int64, limit int) ([]models.Vid
 	return out, rows.Err()
 }
 
+// CountVideosByUser returns how many videos a user has uploaded.
+func (s *Store) CountVideosByUser(userID int64) (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM videos WHERE user_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
 // GetVideo returns a single video with the requesting user's like state.
 func (s *Store) GetVideo(userID int64, id int64) (*models.VideoWithLike, error) {
 	row := s.db.QueryRow(`
-		SELECT v.id, v.title, v.filename, v.filepath, v.mime_type, v.size,
+		SELECT v.id, v.user_id, v.title, v.filename, v.filepath, v.mime_type, v.size,
+		       COALESCE(u.name, '') AS author_name,
 		       v.likes_count, v.comments_count, v.views, v.created_at,
 		       EXISTS(SELECT 1 FROM likes l WHERE l.user_id = ? AND l.video_id = v.id) AS liked
 		FROM videos v
+		LEFT JOIN users u ON u.id = v.user_id
 		WHERE v.id = ?`, userID, id)
 	var v models.Video
 	var created int64
 	var liked bool
-	err := row.Scan(&v.ID, &v.Title, &v.Filename, &v.FilePath, &v.MimeType,
-		&v.Size, &v.LikesCount, &v.CommentsCount, &v.Views, &created, &liked)
+	err := row.Scan(&v.ID, &v.UserID, &v.Title, &v.Filename, &v.FilePath, &v.MimeType,
+		&v.Size, &v.AuthorName, &v.LikesCount, &v.CommentsCount, &v.Views, &created, &liked)
 	if err != nil {
 		return nil, err
 	}

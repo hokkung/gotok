@@ -1,0 +1,14 @@
+{{define "profile.html"}}
+{{template "header" .}}
+<div class="profile-page">
+  <div class="profile-header">
+    <div class="avatar avatar-lg">{{.Initial}}</div>
+    <div class="profile-name">{{.Profile.Name}}</div>
+    <div class="profile-stat">{{.VideoCount}} videos</div>
+  </div>
+  <div id="grid" class="video-grid" data-user-id="{{.Profile.ID}}"></div>
+  <div id="profileLoader" class="loader">Loading…</div>
+</div>
+<script src="/static/js/profile.js"></script>
+{{template "footer" .}}
+{{end}}
