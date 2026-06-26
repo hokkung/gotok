@@ -46,16 +46,27 @@ func (h *Handlers) LoginPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "login.html", data)
 }
 
-// Me returns the currently logged-in user (or null) so the client can adapt its
-// UI without a full page reload.
+// Me godoc
+//	@Summary		Current user
+//	@Description	Returns the currently logged-in user, or null when the request is anonymous.
+//	@Tags			auth
+//	@Produce		json
+//	@Success		200	{object}	MeResponse
+//	@Router			/api/me [get]
 func (h *Handlers) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": middleware.UserFromContext(c)})
 }
 
-// LoginDemo is a stand-in login for development and demos. It creates (or
-// reuses) a "demo" provider user and starts a session so the auth-gated actions
-// (like/comment) can be exercised before real SSO is wired up. Replace with
-// real OAuth flows once Google/Facebook SSO is implemented.
+// LoginDemo godoc
+//	@Summary		Demo login
+//	@Description	Creates (or reuses) a "demo" user and starts a session cookie so the auth-gated actions (like/comment) can be exercised. Returns the user and a redirect target.
+//	@Tags			auth
+//	@Accept			mpfd
+//	@Produce		json
+//	@Param			next	formData	string	false	"Relative path to redirect to after login"
+//	@Success		200		{object}	LoginDemoResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/auth/demo [post]
 func (h *Handlers) LoginDemo(c *gin.Context) {
 	bid := randID(6)
 	u, err := h.store.CreateOrUpdateUser("demo", bid, "Demo "+bid, "demo-"+bid+"@gotok.local", "")
@@ -72,12 +83,24 @@ func (h *Handlers) LoginDemo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "user": u, "redirect": validNext(c.PostForm("next"), "/feed")})
 }
 
-// LoginGoogle is a placeholder for Google SSO. Returns 501 until implemented.
+// LoginGoogle godoc
+//	@Summary		Google SSO (not implemented)
+//	@Description	Placeholder for Google sign-in. Always returns 501 until real SSO is wired up.
+//	@Tags			auth
+//	@Produce		json
+//	@Failure		501	{object}	ErrorResponse
+//	@Router			/auth/google [post]
 func (h *Handlers) LoginGoogle(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "Google sign-in is coming soon"})
 }
 
-// LoginFacebook is a placeholder for Facebook SSO. Returns 501 until implemented.
+// LoginFacebook godoc
+//	@Summary		Facebook SSO (not implemented)
+//	@Description	Placeholder for Facebook sign-in. Always returns 501 until real SSO is wired up.
+//	@Tags			auth
+//	@Produce		json
+//	@Failure		501	{object}	ErrorResponse
+//	@Router			/auth/facebook [post]
 func (h *Handlers) LoginFacebook(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "Facebook sign-in is coming soon"})
 }

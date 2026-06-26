@@ -1,0 +1,574 @@
+basePath: /
+definitions:
+  github_com_hokkung_gotok_internal_models.Comment:
+    properties:
+      author:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      text:
+        type: string
+      video_id:
+        type: integer
+    type: object
+  github_com_hokkung_gotok_internal_models.User:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      provider:
+        description: '"demo" | "google" | "facebook"'
+        type: string
+    type: object
+  github_com_hokkung_gotok_internal_models.VideoWithLike:
+    properties:
+      author_name:
+        description: uploader display name ("" when unknown)
+        type: string
+      comments_count:
+        type: integer
+      created_at:
+        type: string
+      filename:
+        type: string
+      id:
+        type: integer
+      liked:
+        type: boolean
+      likes_count:
+        type: integer
+      mime_type:
+        type: string
+      size:
+        type: integer
+      title:
+        type: string
+      user_id:
+        description: uploader; 0 for legacy videos
+        type: integer
+      views:
+        type: integer
+    type: object
+  internal_handlers.CreateCommentResponse:
+    properties:
+      comment:
+        $ref: '#/definitions/github_com_hokkung_gotok_internal_models.Comment'
+      count:
+        example: 3
+        type: integer
+    type: object
+  internal_handlers.EditProfileResponse:
+    properties:
+      user:
+        $ref: '#/definitions/github_com_hokkung_gotok_internal_models.User'
+    type: object
+  internal_handlers.ErrorResponse:
+    properties:
+      error:
+        example: something went wrong
+        type: string
+    type: object
+  internal_handlers.ListCommentsResponse:
+    properties:
+      comments:
+        items:
+          $ref: '#/definitions/github_com_hokkung_gotok_internal_models.Comment'
+        type: array
+      next:
+        example: 42
+        type: integer
+    type: object
+  internal_handlers.ListVideosResponse:
+    properties:
+      next:
+        example: 42
+        type: integer
+      videos:
+        items:
+          $ref: '#/definitions/github_com_hokkung_gotok_internal_models.VideoWithLike'
+        type: array
+    type: object
+  internal_handlers.LoginDemoResponse:
+    properties:
+      ok:
+        example: true
+        type: boolean
+      redirect:
+        example: /feed
+        type: string
+      user:
+        $ref: '#/definitions/github_com_hokkung_gotok_internal_models.User'
+    type: object
+  internal_handlers.MeResponse:
+    properties:
+      user:
+        $ref: '#/definitions/github_com_hokkung_gotok_internal_models.User'
+    type: object
+  internal_handlers.OkResponse:
+    properties:
+      ok:
+        example: true
+        type: boolean
+    type: object
+  internal_handlers.ToggleLikeResponse:
+    properties:
+      count:
+        example: 7
+        type: integer
+      liked:
+        example: true
+        type: boolean
+    type: object
+  internal_handlers.UploadResponse:
+    properties:
+      filename:
+        example: 1719400000000-1a2b3c.mp4
+        type: string
+      id:
+        example: 12
+        type: integer
+      title:
+        example: My first clip
+        type: string
+    type: object
+info:
+  contact:
+    name: GoTok
+  description: TikTok-style vertical-video web app API (videos, likes, comments, profiles).
+  license:
+    name: MIT
+  title: GoTok API
+  version: "1.0"
+paths:
+  /api/me:
+    get:
+      description: Returns the currently logged-in user, or null when the request
+        is anonymous.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.MeResponse'
+      summary: Current user
+      tags:
+      - auth
+  /api/profile:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Updates the current user's editable profile fields (name, bio,
+        and optionally a new avatar image). Only the logged-in user can edit their
+        own profile; on success it returns the updated user.
+      parameters:
+      - description: Display name
+        in: formData
+        name: name
+        required: true
+        type: string
+      - description: Profile bio (max 160 characters)
+        in: formData
+        name: bio
+        type: string
+      - description: Avatar image (jpg, png, webp; max 5MB)
+        in: formData
+        name: file
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.EditProfileResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - Session: []
+      summary: Edit profile
+      tags:
+      - users
+  /api/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 'Handles a multipart video upload: validates type/size, stores
+        it on the local filesystem, and records metadata. Accepted types: mp4, webm,
+        mov, mkv.'
+      parameters:
+      - description: Video file (mp4, webm, mov, mkv)
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: Video title (defaults to the filename)
+        in: formData
+        name: title
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.UploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - Session: []
+      summary: Upload a video
+      tags:
+      - upload
+  /api/users/{id}/liked:
+    get:
+      description: Returns a cursor-paginated page of the videos a user has liked
+        (most recently liked first) with the requesting viewer's like state.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID of the last item seen (0 for first page)
+        in: query
+        name: cursor
+        type: integer
+      - default: 24
+        description: Page size (1-50)
+        in: query
+        maximum: 50
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ListVideosResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: List videos a user has liked
+      tags:
+      - users
+  /api/users/{id}/videos:
+    get:
+      description: Returns a cursor-paginated page of a single user's videos (newest
+        first) with the requesting viewer's like state.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID of the last item seen (0 for first page)
+        in: query
+        name: cursor
+        type: integer
+      - default: 24
+        description: Page size (1-50)
+        in: query
+        maximum: 50
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ListVideosResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: List a user's videos
+      tags:
+      - users
+  /api/videos:
+    get:
+      description: Returns a cursor-paginated page of videos (newest first) for infinite
+        scroll.
+      parameters:
+      - description: ID of the last item seen (0 for first page)
+        in: query
+        name: cursor
+        type: integer
+      - default: 20
+        description: Page size (1-50)
+        in: query
+        maximum: 50
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ListVideosResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: List videos for the feed
+      tags:
+      - feed
+  /api/videos/{id}/comments:
+    get:
+      description: Returns a cursor-paginated page of comments for a video (newest
+        first).
+      parameters:
+      - description: Video ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID of the last item seen (0 for first page)
+        in: query
+        name: cursor
+        type: integer
+      - default: 20
+        description: Page size (1-50)
+        in: query
+        maximum: 50
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ListCommentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: List comments for a video
+      tags:
+      - comments
+    post:
+      consumes:
+      - multipart/form-data
+      description: Accepts a new comment (form field "text") and returns the created
+        comment plus the refreshed comment count.
+      parameters:
+      - description: Video ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Comment text (max 500 characters)
+        in: formData
+        name: text
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.CreateCommentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - Session: []
+      summary: Create a comment on a video
+      tags:
+      - comments
+  /api/videos/{id}/like:
+    post:
+      description: Flips the requesting client's like on a video and returns the new
+        state and total count.
+      parameters:
+      - description: Video ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ToggleLikeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - Session: []
+      summary: Toggle like on a video
+      tags:
+      - likes
+  /api/videos/{id}/view:
+    post:
+      description: Increments a video's view counter (called once per video by the
+        client).
+      parameters:
+      - description: Video ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Record a video view
+      tags:
+      - videos
+  /auth/demo:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Creates (or reuses) a "demo" user and starts a session cookie so
+        the auth-gated actions (like/comment) can be exercised. Returns the user and
+        a redirect target.
+      parameters:
+      - description: Relative path to redirect to after login
+        in: formData
+        name: next
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.LoginDemoResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Demo login
+      tags:
+      - auth
+  /auth/facebook:
+    post:
+      description: Placeholder for Facebook sign-in. Always returns 501 until real
+        SSO is wired up.
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Facebook SSO (not implemented)
+      tags:
+      - auth
+  /auth/google:
+    post:
+      description: Placeholder for Google sign-in. Always returns 501 until real SSO
+        is wired up.
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Google SSO (not implemented)
+      tags:
+      - auth
+schemes:
+- http
+securityDefinitions:
+  Session:
+    description: Auth uses the "session" cookie set by /auth/demo. Browsers send it
+      automatically; in Swagger UI paste the cookie value manually.
+    in: cookie
+    name: session
+    type: apiKey
+swagger: "2.0"

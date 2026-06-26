@@ -14,8 +14,16 @@ func (h *Handlers) FeedPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "feed.html", h.base(c, "Feed"))
 }
 
-// ListVideos returns a JSON page of videos (newest first) for infinite scroll.
-// Query params: cursor=<id of last item>, limit=<1..50>.
+// ListVideos godoc
+//	@Summary		List videos for the feed
+//	@Description	Returns a cursor-paginated page of videos (newest first) for infinite scroll.
+//	@Tags			feed
+//	@Produce		json
+//	@Param			cursor	query		int	false	"ID of the last item seen (0 for first page)"
+//	@Param			limit	query		int	false	"Page size (1-50)"	default(20)	maximum(50)
+//	@Success		200		{object}	ListVideosResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/api/videos [get]
 func (h *Handlers) ListVideos(c *gin.Context) {
 	var userID int64
 	if u := middleware.UserFromContext(c); u != nil {

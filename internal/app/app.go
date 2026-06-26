@@ -6,7 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	swaggerFiles "github.com/swaggo/files"
+	"github.com/swaggo/gin-swagger"
 
+	_ "github.com/hokkung/gotok/docs" // registers the generated OpenAPI spec
 	"github.com/hokkung/gotok/internal/config"
 	"github.com/hokkung/gotok/internal/handlers"
 	"github.com/hokkung/gotok/internal/middleware"
@@ -27,6 +30,13 @@ func Run(cfg *config.Config, st *store.Store, lg *zap.Logger) {
 	h := handlers.New(cfg, st, lg)
 
 	registerRoutes(r, h)
+
+	// The Swagger UI is a development aid; only mount it when GOTOK_DEV is set
+	// so it is never exposed in a production deployment.
+	if cfg.Dev {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		lg.Info("Swagger UI enabled at /swagger/index.html")
+	}
 
 	lg.Info("GoTok listening", zap.String("addr", cfg.ListenAddr))
 	if err := r.Run(cfg.ListenAddr); err != nil {

@@ -13,8 +13,18 @@ import (
 // maxCommentLen is the hard cap on a single comment's length.
 const maxCommentLen = 500
 
-// ListComments returns a JSON page of comments for a video (newest first).
-// Query params: cursor=<id of last item>, limit=<1..50>.
+// ListComments godoc
+//	@Summary		List comments for a video
+//	@Description	Returns a cursor-paginated page of comments for a video (newest first).
+//	@Tags			comments
+//	@Produce		json
+//	@Param			id		path		int	true	"Video ID"
+//	@Param			cursor	query		int	false	"ID of the last item seen (0 for first page)"
+//	@Param			limit	query		int	false	"Page size (1-50)"	default(20)	maximum(50)
+//	@Success		200		{object}	ListCommentsResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/api/videos/{id}/comments [get]
 func (h *Handlers) ListComments(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -39,8 +49,21 @@ func (h *Handlers) ListComments(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"comments": comments, "next": next})
 }
 
-// CreateComment accepts a new comment (form field "text") and returns the
-// created comment plus the refreshed comment count for the video.
+// CreateComment godoc
+//	@Summary		Create a comment on a video
+//	@Description	Accepts a new comment (form field "text") and returns the created comment plus the refreshed comment count.
+//	@Tags			comments
+//	@Accept			mpfd
+//	@Produce		json
+//	@Param			id		path		int		true	"Video ID"
+//	@Param			text	formData	string	true	"Comment text (max 500 characters)"
+//	@Success		200		{object}	CreateCommentResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		404		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Security		Session
+//	@Router			/api/videos/{id}/comments [post]
 func (h *Handlers) CreateComment(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

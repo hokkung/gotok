@@ -344,6 +344,7 @@ double‑tap on video → likeVideo(card, id, e)
 8. **Manual `escapeHtml`** on the frontend for any user‑supplied text (titles, comments) — there is no templating/auto‑escaping in vanilla JS.
 9. **Range‑aware video serving** via `http.ServeFile` so seeking works without a custom streaming endpoint.
 10. **Idempotent, additive migrations** (`IF NOT EXISTS` + `addColumnIfMissing` + guarded table rebuilds) instead of a migration framework — appropriate at this scale. The `cid`→`user_id` switch uses a guarded rebuild (`migrateLikesComments`): it detects the legacy `client_id` column and rebuilds `likes`/`comments` in place, dropping orphaned anonymous data and resetting video counts.
+11. DO NOT add unnecessary comment
 
 ---
 

@@ -1,48 +1,70 @@
-// Package config holds GoTok's configuration, loaded from sensible defaults
-// (ports, paths, upload limits) and a persisted cookie secret.
+// Package config holds GoTok's configuration. Values are bound from the
+// environment (or a local .env file) into the Config struct via struct tags;
+// sensible defaults keep the app runnable with zero configuration.
 package config
 
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 )
 
-// Config holds application configuration.
+// Config holds application configuration. Fields tagged with `env:"..."` are
+// populated from the process environment (or .env); defaults apply when unset.
 type Config struct {
-	DataDir      string
-	UploadDir    string
-	DBPath       string
-	MaxUploadMB  int64
-	ListenAddr   string
-	CookieSecret string
+	DataDir      string `env:"GOTOK_DATA_DIR" envDefault:"data"`
+	UploadDir    string `env:"GOTOK_UPLOAD_DIR"`           // derived from DataDir when empty
+	DBPath       string `env:"GOTOK_DB_PATH"`              // derived from DataDir when empty
+	MaxUploadMB  int64  `env:"GOTOK_MAX_UPLOAD_MB" envDefault:"200"`
+	ListenAddr   string `env:"GOTOK_LISTEN_ADDR" envDefault:":8080"`
+	CookieSecret string `env:"GOTOK_COOKIE_SECRET"`        // generated + persisted when empty
+	// Dev enables development-only features (e.g. the Swagger UI). Off by
+	// default; turned on with GOTOK_DEV=true.
+	Dev bool `env:"GOTOK_DEV" envDefault:"false"`
 }
 
-// Load returns a config with sensible defaults. The cookie secret is generated
-// randomly on first run and persisted so anonymous client ids survive restarts.
+// Load reads a local .env file (if present), then binds the environment into a
+// Config. Paths under DataDir are derived when not set explicitly, the upload
+// directory is created, and the cookie secret is generated + persisted on first
+// run so sessions survive restarts.
 func Load() (*Config, error) {
-	dataDir := "data"
-	uploadDir := filepath.Join(dataDir, "uploads")
-	dbPath := filepath.Join(dataDir, "app.db")
+	// godotenv.Load is a no-op (returns an error we ignore) when .env is absent,
+	// e.g. in production where values come from the real environment.
+	_ = godotenv.Load()
 
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+	var cfg Config
+	if err := env.Parse(&cfg); err != nil {
+		return nil, fmt.Errorf("parse env: %w", err)
+	}
+
+	// Derive sub-paths from DataDir unless they were set explicitly.
+	if cfg.UploadDir == "" {
+		cfg.UploadDir = filepath.Join(cfg.DataDir, "uploads")
+	}
+	if cfg.DBPath == "" {
+		cfg.DBPath = filepath.Join(cfg.DataDir, "app.db")
+	}
+
+	if err := os.MkdirAll(cfg.UploadDir, 0o755); err != nil {
 		return nil, err
 	}
 
-	secret, err := loadOrCreateSecret(filepath.Join(dataDir, "cookie_secret"))
-	if err != nil {
-		return nil, err
+	// Use an explicit secret from env when provided; otherwise generate and
+	// persist one so it survives restarts.
+	if cfg.CookieSecret == "" {
+		secret, err := loadOrCreateSecret(filepath.Join(cfg.DataDir, "cookie_secret"))
+		if err != nil {
+			return nil, err
+		}
+		cfg.CookieSecret = secret
 	}
 
-	return &Config{
-		DataDir:      dataDir,
-		UploadDir:    uploadDir,
-		DBPath:       dbPath,
-		MaxUploadMB:  200,
-		ListenAddr:   ":8080",
-		CookieSecret: secret,
-	}, nil
+	return &cfg, nil
 }
 
 func loadOrCreateSecret(path string) (string, error) {
