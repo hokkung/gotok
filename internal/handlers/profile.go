@@ -60,8 +60,18 @@ func (h *Handlers) ProfilePage(c *gin.Context) {
 	c.HTML(http.StatusOK, "profile.html", data)
 }
 
-// ListVideosByUser returns a JSON page of a single user's videos (newest first)
-// with the requesting viewer's like state. Query params: cursor=<id>, limit.
+// ListVideosByUser godoc
+//	@Summary		List a user's videos
+//	@Description	Returns a cursor-paginated page of a single user's videos (newest first) with the requesting viewer's like state.
+//	@Tags			users
+//	@Produce		json
+//	@Param			id		path		int	true	"User ID"
+//	@Param			cursor	query		int	false	"ID of the last item seen (0 for first page)"
+//	@Param			limit	query		int	false	"Page size (1-50)"	default(24)	maximum(50)
+//	@Success		200		{object}	ListVideosResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/api/users/{id}/videos [get]
 func (h *Handlers) ListVideosByUser(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -90,9 +100,18 @@ func (h *Handlers) ListVideosByUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"videos": videos, "next": next})
 }
 
-// ListLikedVideos returns a JSON page of the videos a user has liked (most
-// recently liked first) with the requesting viewer's like state. Pagination is
-// by like id via the generic cursor param. Query params: cursor=<id>, limit.
+// ListLikedVideos godoc
+//	@Summary		List videos a user has liked
+//	@Description	Returns a cursor-paginated page of the videos a user has liked (most recently liked first) with the requesting viewer's like state.
+//	@Tags			users
+//	@Produce		json
+//	@Param			id		path		int	true	"User ID"
+//	@Param			cursor	query		int	false	"ID of the last item seen (0 for first page)"
+//	@Param			limit	query		int	false	"Page size (1-50)"	default(24)	maximum(50)
+//	@Success		200		{object}	ListVideosResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/api/users/{id}/liked [get]
 func (h *Handlers) ListLikedVideos(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -117,9 +136,22 @@ func (h *Handlers) ListLikedVideos(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"videos": videos, "next": next})
 }
 
-// EditProfile updates the current user's editable profile fields (name, bio, and
-// optionally a new avatar image). Only the logged-in user can edit their own
-// profile. On success it returns the updated user so the client can refresh.
+// EditProfile godoc
+//	@Summary		Edit profile
+//	@Description	Updates the current user's editable profile fields (name, bio, and optionally a new avatar image). Only the logged-in user can edit their own profile; on success it returns the updated user.
+//	@Tags			users
+//	@Accept			mpfd
+//	@Produce		json
+//	@Param			name	formData	string	true	"Display name"
+//	@Param			bio		formData	string	false	"Profile bio (max 160 characters)"
+//	@Param			file	formData	file	false	"Avatar image (jpg, png, webp; max 5MB)"
+//	@Success		200		{object}	EditProfileResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		413		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Security		Session
+//	@Router			/api/profile [post]
 func (h *Handlers) EditProfile(c *gin.Context) {
 	u := middleware.UserFromContext(c)
 

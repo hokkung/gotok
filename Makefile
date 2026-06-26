@@ -7,7 +7,7 @@ ADDR     := :8080
 DATA_DIR := data
 
 # Phony targets = commands, not files.
-.PHONY: help run build vet lint fmt tidy test clean reset serve
+.PHONY: help run build vet lint fmt tidy test clean reset serve swag
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
@@ -42,3 +42,6 @@ clean: ## Remove the built binary
 
 reset: clean ## Remove the binary AND wipe local data (db + uploads)
 	rm -rf $(DATA_DIR)
+
+swag: ## (Re)generate Swagger/OpenAPI docs into docs/
+	go run github.com/swaggo/swag/cmd/swag@v1.8.12 init -g cmd/gotok/main.go -o docs --parseDependency --parseInternal

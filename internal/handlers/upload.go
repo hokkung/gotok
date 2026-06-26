@@ -38,8 +38,21 @@ func (h *Handlers) UploadPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "upload.html", data)
 }
 
-// Upload handles a multipart video upload: validates type/size, stores it on the
-// local filesystem, and records metadata in the database.
+// Upload godoc
+//	@Summary		Upload a video
+//	@Description	Handles a multipart video upload: validates type/size, stores it on the local filesystem, and records metadata. Accepted types: mp4, webm, mov, mkv.
+//	@Tags			upload
+//	@Accept			mpfd
+//	@Produce		json
+//	@Param			file	formData	file	true	"Video file (mp4, webm, mov, mkv)"
+//	@Param			title	formData	string	false	"Video title (defaults to the filename)"
+//	@Success		200		{object}	UploadResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		413		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Security		Session
+//	@Router			/api/upload [post]
 func (h *Handlers) Upload(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
