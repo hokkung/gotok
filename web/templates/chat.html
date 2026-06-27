@@ -1,21 +1,46 @@
 {{define "chat.html"}}
 {{template "header" .}}
-<div class="chat-page">
-  <div class="chat-header">
-    <h1>Chats</h1>
+<div class="chat-app">
+  <div id="chatListPanel" class="chat-list-panel">
+    <div class="chat-header">
+      <h1>Chats</h1>
+    </div>
+    <div class="chat-search">
+      <input type="text" id="chatSearch" placeholder="Search" autocomplete="off">
+    </div>
+    <div id="chatList" class="chat-list">
+      <div class="chat-empty">
+        <span class="chat-empty-icon">💬</span>
+        <p>No conversations yet</p>
+        <span>Visit a user's profile to start chatting.</span>
+      </div>
+    </div>
+    <div id="chatListLoader" class="loader" hidden>Loading…</div>
   </div>
 
-  <div class="chat-search">
-    <input type="text" id="chatSearch" placeholder="Search" autocomplete="off">
-  </div>
-
-  <div id="chatList" class="chat-list">
-    <div class="chat-empty">
-      <span class="chat-empty-icon">💬</span>
-      <p>No conversations yet</p>
-      <span>Messages from people you follow will show up here.</span>
+  <div id="chatThreadPanel" class="chat-thread-panel">
+    <div id="chatThreadEmpty" class="chat-thread-empty">
+      <span style="font-size:48px">💬</span>
+      <p>Select a conversation to start messaging</p>
+    </div>
+    <div id="chatThread" class="chat-thread" hidden>
+      <div class="chat-thread-header">
+        <button class="chat-back-btn" id="chatBackBtn" type="button">‹</button>
+        <div id="threadAvatar" class="chat-thread-avatar"></div>
+        <div class="chat-thread-info">
+          <div id="threadName" class="chat-thread-name"></div>
+          <div id="threadStatus" class="chat-thread-status"></div>
+        </div>
+      </div>
+      <div id="messageList" class="message-list"></div>
+      <div id="messageLoader" class="loader" hidden>Loading…</div>
+      <div class="message-input-bar">
+        <input type="text" id="messageInput" placeholder="Message…" autocomplete="off">
+        <button id="messageSend" type="button">Send</button>
+      </div>
     </div>
   </div>
 </div>
+<script src="/static/js/chat.js"></script>
 {{template "footer" .}}
 {{end}}

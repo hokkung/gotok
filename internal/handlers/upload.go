@@ -95,7 +95,7 @@ func (h *Handlers) Upload(c *gin.Context) {
 	}
 
 	u := middleware.UserFromContext(c)
-	id, err := h.store.CreateVideo(&models.Video{
+	id, err := h.store.CreateVideo(c.Request.Context(), &models.Video{
 		UserID:   u.ID,
 		Title:    title,
 		Filename: stored,

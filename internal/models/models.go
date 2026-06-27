@@ -1,5 +1,5 @@
-// Package models defines the data types (Video, User, Comment, Like) shared
-// across GoTok's store and handler layers.
+// Package models defines the data types (Video, User, Comment, Like, Message)
+// shared across GoTok's store and handler layers.
 package models
 
 import "time"
@@ -35,11 +35,14 @@ type Like struct {
 }
 
 // Comment represents a user comment on a video. Author is the commenting
-// user's display name (looked up via the users table).
+// user's display name (looked up via the users table). UserID and AvatarURL
+// are resolved via JOIN so the frontend can link to the commenter's profile.
 type Comment struct {
 	ID        int64     `json:"id"`
 	VideoID   int64     `json:"video_id"`
+	UserID    int64     `json:"user_id"`
 	Author    string    `json:"author"`
+	AvatarURL string    `json:"avatar_url"`
 	Text      string    `json:"text"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -57,4 +60,52 @@ type User struct {
 	PasswordHash   string    `json:"-"` // bcrypt hash for "email" accounts; "" otherwise
 	Bio            string    `json:"bio"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+// ConversationTypeDM and ConversationTypeGroup are the supported conversation
+// types.
+const (
+	ConversationTypeDM    = "dm"
+	ConversationTypeGroup = "group"
+)
+
+// Conversation represents a chat conversation (1-on-1 DM or group).
+type Conversation struct {
+	ID        int64  `json:"id"`
+	Type      string `json:"type"` // "dm" | "group"
+	Title     string `json:"title"` // group name; "" for DMs
+	CreatedAt int64  `json:"created_at"`
+}
+
+// ConversationPreview is a conversation enriched with display metadata for the
+// conversation list view.
+type ConversationPreview struct {
+	Conversation
+	OtherUserID   int64    `json:"other_user_id"`
+	OtherUserName string   `json:"other_user_name"`
+	OtherAvatar   string   `json:"other_avatar"`
+	LastMsgText   string   `json:"last_msg_text"`
+	LastMsgAt     int64    `json:"last_msg_at"`
+	LastMsgSender int64    `json:"last_msg_sender"`
+	UnreadCount   int64    `json:"unread_count"`
+	Online        bool     `json:"online"`
+}
+
+// Message represents a single chat message with sender display info.
+type Message struct {
+	ID             int64  `json:"id"`
+	ConversationID int64  `json:"conversation_id"`
+	SenderID       int64  `json:"sender_id"`
+	SenderName     string `json:"sender_name"`
+	SenderAvatar   string `json:"sender_avatar"`
+	Text           string `json:"text"`
+	CreatedAt      int64  `json:"created_at"`
+}
+
+// ConversationParticipant represents a user's membership in a conversation.
+type ConversationParticipant struct {
+	UserID        int64  `json:"user_id"`
+	Name          string `json:"name"`
+	AvatarURL     string `json:"avatar_url"`
+	LastReadMsgID int64  `json:"last_read_msg_id"`
 }

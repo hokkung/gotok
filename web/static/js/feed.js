@@ -378,10 +378,23 @@ async function loadComments(append) {
 function renderComment(c, prepend) {
   const li = document.createElement('div');
   li.className = 'comment-item';
+  var avatarHtml;
+  if (c.avatar_url) {
+    avatarHtml = '<img class="avatar avatar-img" src="' + escapeHtml(c.avatar_url) + '" alt="">';
+  } else {
+    avatarHtml = '<div class="avatar">' + escapeHtml((c.author || '?').slice(-1).toUpperCase()) + '</div>';
+  }
+  var authorHtml;
+  if (c.user_id && c.user_id > 0) {
+    avatarHtml = '<a href="/u/' + c.user_id + '">' + avatarHtml + '</a>';
+    authorHtml = '<a class="comment-author" href="/u/' + c.user_id + '">' + escapeHtml(c.author) + '</a>';
+  } else {
+    authorHtml = '<span class="comment-author">' + escapeHtml(c.author) + '</span>';
+  }
   li.innerHTML =
-    '<div class="avatar">' + escapeHtml((c.author || '?').slice(-1).toUpperCase()) + '</div>' +
+    avatarHtml +
     '<div class="comment-body">' +
-      '<div class="comment-author">' + escapeHtml(c.author) +
+      '<div>' + authorHtml +
         '<span class="comment-time"> · ' + timeAgo(c.created_at) + '</span>' +
       '</div>' +
       '<div class="comment-text">' + escapeHtml(c.text) + '</div>' +
