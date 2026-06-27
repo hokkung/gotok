@@ -24,7 +24,7 @@ const UserKey = "user"
 func Auth(st *store.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if token, err := c.Cookie(SessionCookie); err == nil && token != "" {
-			if u, err := st.GetUserBySession(token); err == nil && u != nil {
+			if u, err := st.GetUserBySession(c.Request.Context(), token); err == nil && u != nil {
 				c.Set(UserKey, u)
 			}
 		}

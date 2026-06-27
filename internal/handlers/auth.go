@@ -72,13 +72,13 @@ func (h *Handlers) Me(c *gin.Context) {
 //	@Router			/auth/demo [post]
 func (h *Handlers) LoginDemo(c *gin.Context) {
 	bid := randID(6)
-	u, err := h.store.CreateOrUpdateUser("demo", bid, "Demo "+bid, "demo-"+bid+"@gotok.local", "")
+	u, err := h.store.CreateOrUpdateUser(c.Request.Context(), "demo", bid, "Demo "+bid, "demo-"+bid+"@gotok.local", "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not start demo session"})
 		return
 	}
 	token := newSessionToken()
-	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
@@ -104,7 +104,7 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 
-	u, err := h.store.GetUserByEmail(email)
+	u, err := h.store.GetUserByEmail(c.Request.Context(), email)
 	if err != nil || u.PasswordHash == "" {
 		// Unknown email, or an SSO/demo account with no password set.
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
@@ -116,7 +116,7 @@ func (h *Handlers) Login(c *gin.Context) {
 	}
 
 	token := newSessionToken()
-	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
@@ -148,7 +148,7 @@ func (h *Handlers) Register(c *gin.Context) {
 		return
 	}
 
-	u, err := h.store.CreateUserWithPassword(name, email, string(hash))
+	u, err := h.store.CreateUserWithPassword(c.Request.Context(), name, email, string(hash))
 	if err != nil {
 		if errors.Is(err, store.ErrEmailExists) {
 			c.JSON(http.StatusConflict, gin.H{"error": "an account with that email already exists"})
@@ -159,7 +159,7 @@ func (h *Handlers) Register(c *gin.Context) {
 	}
 
 	token := newSessionToken()
-	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
@@ -191,7 +191,7 @@ func (h *Handlers) LoginFacebook(c *gin.Context) {
 // Logout ends the current session (if any) and clears the cookie.
 func (h *Handlers) Logout(c *gin.Context) {
 	if token, err := c.Cookie(sessionCookie); err == nil && token != "" {
-		_ = h.store.DeleteSession(token)
+		_ = h.store.DeleteSession(c.Request.Context(), token)
 	}
 	clearSessionCookie(c)
 	c.Redirect(http.StatusFound, "/feed")

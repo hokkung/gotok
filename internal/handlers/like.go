@@ -29,11 +29,11 @@ func (h *Handlers) ToggleLike(c *gin.Context) {
 		return
 	}
 	u := middleware.UserFromContext(c)
-	if _, err := h.store.GetVideo(u.ID, id); err != nil {
+	if _, err := h.store.GetVideo(c.Request.Context(), u.ID, id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "video not found"})
 		return
 	}
-	liked, count, err := h.store.ToggleLike(u.ID, id)
+	liked, count, err := h.store.ToggleLike(c.Request.Context(), u.ID, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not toggle like"})
 		return
@@ -56,6 +56,6 @@ func (h *Handlers) View(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 		return
 	}
-	h.store.IncrementViews(id)
+	h.store.IncrementViews(c.Request.Context(), id)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

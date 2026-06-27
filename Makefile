@@ -7,7 +7,7 @@ ADDR     := :8080
 DATA_DIR := data
 
 # Phony targets = commands, not files.
-.PHONY: help run build vet lint fmt tidy test clean reset serve swag
+.PHONY: help run build vet lint fmt tidy test clean reset serve swag up down test-race
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
@@ -37,11 +37,20 @@ tidy: ## Sync dependencies (go mod tidy)
 test: ## Run unit tests
 	go test ./...
 
+test-race: ## Run tests with race detector
+	go test -race ./...
+
 clean: ## Remove the built binary
 	rm -f $(BINARY)
 
-reset: clean ## Remove the binary AND wipe local data (db + uploads)
+reset: clean ## Remove the binary AND wipe local data (uploads)
 	rm -rf $(DATA_DIR)
+
+up: ## Start PostgreSQL + Redis + 2 GoTok instances via docker compose
+	docker compose up --build
+
+down: ## Stop docker compose services
+	docker compose down
 
 swag: ## (Re)generate Swagger/OpenAPI docs into docs/
 	go run github.com/swaggo/swag/cmd/swag@v1.8.12 init -g cmd/gotok/main.go -o docs --parseDependency --parseInternal
