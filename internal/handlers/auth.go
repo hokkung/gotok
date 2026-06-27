@@ -3,13 +3,16 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/store"
 )
 
 // sessionTTL is how long a login session stays valid.
@@ -90,6 +93,86 @@ func (h *Handlers) LoginDemo(c *gin.Context) {
 //	@Produce		json
 //	@Failure		501	{object}	ErrorResponse
 //	@Router			/auth/google [post]
+// Login authenticates an email/password account and starts a session. A single
+// generic "invalid email or password" message is returned for both an unknown
+// email and a wrong password to prevent user enumeration.
+func (h *Handlers) Login(c *gin.Context) {
+	email := normalizeEmail(c.PostForm("email"))
+	password := c.PostForm("password")
+	if email == "" || password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password are required"})
+		return
+	}
+
+	u, err := h.store.GetUserByEmail(email)
+	if err != nil || u.PasswordHash == "" {
+		// Unknown email, or an SSO/demo account with no password set.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
+		return
+	}
+
+	token := newSessionToken()
+	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
+		return
+	}
+	setSessionCookie(c, token)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "user": u, "redirect": validNext(c.PostForm("next"), "/feed")})
+}
+
+// Register creates a new email/password account and starts a session.
+func (h *Handlers) Register(c *gin.Context) {
+	name := strings.TrimSpace(c.PostForm("name"))
+	email := normalizeEmail(c.PostForm("email"))
+	password := c.PostForm("password")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	if !strings.Contains(email, "@") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "a valid email is required"})
+		return
+	}
+	if len(password) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 8 characters"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not hash password"})
+		return
+	}
+
+	u, err := h.store.CreateUserWithPassword(name, email, string(hash))
+	if err != nil {
+		if errors.Is(err, store.ErrEmailExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": "an account with that email already exists"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create account"})
+		return
+	}
+
+	token := newSessionToken()
+	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
+		return
+	}
+	setSessionCookie(c, token)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "user": u, "redirect": validNext(c.PostForm("next"), "/feed")})
+}
+
+// normalizeEmail trims surrounding whitespace and lower-cases the email so
+// lookups are case-insensitive.
+func normalizeEmail(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
 func (h *Handlers) LoginGoogle(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "Google sign-in is coming soon"})
 }

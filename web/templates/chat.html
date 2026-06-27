@@ -1,0 +1,21 @@
+{{define "chat.html"}}
+{{template "header" .}}
+<div class="chat-page">
+  <div class="chat-header">
+    <h1>Chats</h1>
+  </div>
+
+  <div class="chat-search">
+    <input type="text" id="chatSearch" placeholder="Search" autocomplete="off">
+  </div>
+
+  <div id="chatList" class="chat-list">
+    <div class="chat-empty">
+      <span class="chat-empty-icon">💬</span>
+      <p>No conversations yet</p>
+      <span>Messages from people you follow will show up here.</span>
+    </div>
+  </div>
+</div>
+{{template "footer" .}}
+{{end}}

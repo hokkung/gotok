@@ -52,6 +52,7 @@ func registerRoutes(r *gin.Engine, h *handlers.Handlers) {
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/feed") })
 	r.GET("/feed", h.FeedPage)
 	r.GET("/upload", h.UploadPage)
+	r.GET("/chat", h.ChatPage)
 	r.GET("/uploads/:filename", h.ServeFile)
 	r.GET("/u/:id", h.ProfilePage)
 
@@ -60,6 +61,8 @@ func registerRoutes(r *gin.Engine, h *handlers.Handlers) {
 	r.GET("/login", h.LoginPage)
 	r.POST("/logout", h.Logout)
 	r.POST("/auth/demo", h.LoginDemo)
+	r.POST("/auth/login", h.Login)
+	r.POST("/auth/register", h.Register)
 	r.POST("/auth/google", h.LoginGoogle)
 	r.POST("/auth/facebook", h.LoginFacebook)
 

@@ -44,15 +44,17 @@ type Comment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// User represents a logged-in identity. Today only the "demo" provider exists;
-// "google" and "facebook" will be populated once SSO is implemented.
+// User represents a logged-in identity. The "email" provider covers
+// email/password accounts; "google" and "facebook" will be populated once SSO
+// is implemented.
 type User struct {
 	ID             int64     `json:"id"`
-	Provider       string    `json:"provider"` // "demo" | "google" | "facebook"
+	Provider       string    `json:"provider"` // "email" | "demo" | "google" | "facebook"
 	ProviderUserID string    `json:"-"`        // provider-specific id; never sent to clients
 	Name           string    `json:"name"`
 	Email          string    `json:"email"`
 	AvatarURL      string    `json:"avatar_url"`
+	PasswordHash   string    `json:"-"` // bcrypt hash for "email" accounts; "" otherwise
 	Bio            string    `json:"bio"`
 	CreatedAt      time.Time `json:"created_at"`
 }

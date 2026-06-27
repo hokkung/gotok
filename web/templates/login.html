@@ -2,23 +2,36 @@
 {{template "header" .}}
 <section class="auth-page" id="authRoot" data-next="{{.Next}}">
   <div class="auth-card">
-    <h1>Log in to GoTok</h1>
-    <p class="auth-sub">Log in to like videos and post comments.</p>
+    <h1 id="authTitle">Log in to GoTok</h1>
+    <p class="auth-sub" id="authSub">Log in to like videos and post comments.</p>
 
-    <!-- SSO providers. These are placeholders: the buttons hit /auth/google and
-         /auth/facebook, which currently return "coming soon". Wire up OAuth
-         (redirect -> provider -> callback -> CreateOrUpdateUser) to enable them. -->
+    <div class="auth-toggle" role="tablist">
+      <button type="button" class="auth-tab active" data-mode="login" role="tab">Log in</button>
+      <button type="button" class="auth-tab" data-mode="register" role="tab">Sign up</button>
+    </div>
+
+    <form id="credForm" class="auth-form" autocomplete="on">
+      <div class="auth-field" id="nameField" hidden>
+        <input type="text" name="name" placeholder="Name" autocomplete="name">
+      </div>
+      <div class="auth-field">
+        <input type="email" name="email" placeholder="Email" autocomplete="email" required>
+      </div>
+      <div class="auth-field">
+        <input type="password" name="password" id="passwordField" placeholder="Password" autocomplete="current-password" required minlength="8">
+      </div>
+      <button type="submit" class="sso-btn demo" id="credSubmit">Log in</button>
+    </form>
+
+    <div class="auth-divider"><span>or</span></div>
+
     <button class="sso-btn google" id="googleBtn" type="button">
       <span class="sso-logo">G</span> Continue with Google
     </button>
     <button class="sso-btn facebook" id="facebookBtn" type="button">
       <span class="sso-logo">f</span> Continue with Facebook
     </button>
-
-    <div class="auth-divider"><span>or</span></div>
-
-    <!-- Demo login: lets the auth flow run before SSO is implemented. -->
-    <button class="sso-btn demo" id="demoBtn" type="button">Continue as demo user</button>
+    <button class="sso-btn" id="demoBtn" type="button">Continue as demo user</button>
 
     <div id="authStatus" class="status"></div>
   </div>

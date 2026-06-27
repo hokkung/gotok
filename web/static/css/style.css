@@ -8,12 +8,65 @@ a { color: inherit; }
 
 .topnav {
   position: fixed; top: 0; left: 0; right: 0; height: 52px;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 12px;
   padding: 0 16px; z-index: 50;
   background: linear-gradient(180deg, rgba(0,0,0,.6), rgba(0,0,0,0));
 }
 .brand { text-decoration: none; font-weight: 700; font-size: 18px; }
-.navlinks a { text-decoration: none; margin-left: 14px; opacity: .9; }
+
+/* ----- Hamburger button (opens the left drawer) ----- */
+.menu-toggle {
+  background: transparent; border: none; color: #fff; cursor: pointer;
+  font-size: 22px; line-height: 1; padding: 4px 6px;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.menu-toggle:hover { opacity: .85; }
+
+/* ----- Top-right action icon (chat) ----- */
+.topnav-action {
+  margin-left: auto;
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 50%;
+  color: #fff; text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.topnav-action:hover { background: rgba(255,255,255,.12); }
+
+/* ----- Left slide-out drawer ----- */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 110;
+  width: 260px; max-width: 82vw;
+  background: #161618; border-right: 1px solid #2a2a2e;
+  display: flex; flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform .25s ease;
+  overflow-y: auto;
+}
+.sidebar.open { transform: translateX(0); }
+.sidebar-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid #2a2a2e;
+}
+.sidebar-close {
+  background: none; border: none; color: #fff; font-size: 22px;
+  cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.sidebar-close:hover { opacity: .85; }
+.sidebar-nav { display: flex; flex-direction: column; padding: 8px 0; }
+.sidebar-nav a {
+  text-decoration: none; padding: 14px 18px; opacity: .9; font-size: 15px;
+}
+.sidebar-nav a:hover { background: rgba(255,255,255,.06); opacity: 1; }
+
+/* Backdrop behind the open drawer. */
+.sidebar-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.55);
+  opacity: 0; visibility: hidden;
+  transition: opacity .25s ease, visibility .25s ease;
+}
+.sidebar-overlay.open { opacity: 1; visibility: visible; }
 
 /* ----- TikTok-style feed ----- */
 .feed {
@@ -221,13 +274,13 @@ a { color: inherit; }
 
 /* ----- Nav auth widget (user name + logout / log in link) ----- */
 .nav-user {
-  margin-left: 14px; font-size: 13px; opacity: .85;
-  max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 15px; opacity: .9;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.logout-form { display: inline; margin-left: 10px; }
+.logout-form { display: block; padding: 0 18px; margin-top: 4px; }
 .logout-form button {
   background: transparent; border: 1px solid #555; color: #fff;
-  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer;
 }
 .logout-form button:hover { border-color: #ff3b5c; }
 
@@ -262,6 +315,27 @@ a { color: inherit; }
 .auth-divider::before, .auth-divider::after {
   content: ''; flex: 1; height: 1px; background: #2a2a2e;
 }
+
+/* ----- Auth login/register toggle + email/password form ----- */
+.auth-toggle {
+  display: flex; gap: 4px; padding: 4px;
+  background: #1b1b20; border-radius: 10px;
+}
+.auth-tab {
+  flex: 1; padding: 10px; border: none; border-radius: 8px;
+  background: transparent; color: #aaa; font-size: 14px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+  transition: background .12s ease, color .12s ease;
+}
+.auth-tab.active { background: #ff3b5c; color: #fff; }
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-field input {
+  width: 100%; padding: 13px 14px; border-radius: 10px; border: 1px solid #333;
+  background: #1b1b20; color: #fff; font-size: 15px; font-family: inherit; outline: none;
+  transition: border-color .12s ease;
+}
+.auth-field input:focus { border-color: #ff3b5c; }
+.auth-field input::placeholder { color: #777; }
 
 /* ----- Feed card: uploader line under the title ----- */
 .overlay .author {
@@ -355,3 +429,26 @@ a { color: inherit; }
   background: #ff3b5c; color: #fff; font-weight: 700; font-size: 16px; cursor: pointer;
 }
 #editSubmit:disabled { opacity: .6; cursor: default; }
+
+/* ----- Chat inbox page ----- */
+.chat-page {
+  height: 100vh; height: 100dvh; overflow-y: auto;
+  padding-top: 52px; padding-bottom: 16px;
+}
+.chat-header { padding: 8px 16px 4px; }
+.chat-header h1 { margin: 0; font-size: 28px; font-weight: 800; }
+.chat-search { padding: 8px 16px 12px; }
+.chat-search input {
+  width: 100%; padding: 11px 14px; border-radius: 12px;
+  border: none; background: #1b1b20; color: #fff; font-size: 15px;
+  font-family: inherit; outline: none;
+}
+.chat-search input::placeholder { color: #777; }
+.chat-list { display: flex; flex-direction: column; }
+.chat-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 6px; padding: 80px 32px; color: #888;
+}
+.chat-empty-icon { font-size: 48px; }
+.chat-empty p { margin: 0; font-size: 16px; color: #ddd; }
+.chat-empty span { font-size: 13px; line-height: 1.5; }
