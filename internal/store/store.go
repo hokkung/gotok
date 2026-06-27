@@ -4,7 +4,9 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // registers the pure-Go SQLite driver for database/sql
@@ -13,6 +15,10 @@ import (
 
 	"github.com/hokkung/gotok/internal/models"
 )
+
+// ErrEmailExists is returned when creating an email/password account whose email
+// is already registered.
+var ErrEmailExists = errors.New("email already registered")
 
 // Store wraps the database connection and provides data access.
 type Store struct {
@@ -106,6 +112,10 @@ func (s *Store) migrate() error {
 	}
 	// Backfill bio on databases created before the profile bio feature.
 	if err := s.addColumnIfMissing("users", "bio", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Backfill password_hash on databases created before email/password login.
+	if err := s.addColumnIfMissing("users", "password_hash", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	// Migrate likes/comments from anonymous client_id keying to user_id keying.
@@ -453,13 +463,46 @@ func (s *Store) CreateOrUpdateUser(provider, providerUserID, name, email, avatar
 	if err != nil {
 		return nil, err
 	}
-	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, bio, created_at
+	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, password_hash, bio, created_at
 		FROM users WHERE provider = ? AND provider_user_id = ?`, provider, providerUserID)
+}
+
+// GetUserByEmail returns the email/password account for the given email. The
+// account's provider_user_id is the email itself, so the UNIQUE(provider,
+// provider_user_id) constraint guarantees at most one match. Returns
+// sql.ErrNoRows when no such account exists.
+func (s *Store) GetUserByEmail(email string) (*models.User, error) {
+	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, password_hash, bio, created_at
+		FROM users WHERE provider = 'email' AND provider_user_id = ?`, email)
+}
+
+// CreateUserWithPassword inserts a new email/password account. provider_user_id
+// is set to the (normalized) email so the UNIQUE constraint enforces email
+// uniqueness; a duplicate returns ErrEmailExists.
+func (s *Store) CreateUserWithPassword(name, email, passwordHash string) (*models.User, error) {
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`INSERT INTO users (provider, provider_user_id, name, email, password_hash, created_at)
+		VALUES ('email', ?, ?, ?, ?, ?)`,
+		email, name, email, passwordHash, now)
+	if err != nil {
+		if isUniqueConstraintErr(err) {
+			return nil, ErrEmailExists
+		}
+		return nil, err
+	}
+	return s.GetUserByEmail(email)
+}
+
+// isUniqueConstraintErr reports whether err is a SQLite UNIQUE constraint
+// violation. modernc.org/sqlite surfaces these as messages containing the
+// substring "UNIQUE constraint".
+func isUniqueConstraintErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint")
 }
 
 // GetUser returns a user by id.
 func (s *Store) GetUser(id int64) (*models.User, error) {
-	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, bio, created_at
+	return s.getUser(`SELECT id, provider, provider_user_id, name, email, avatar_url, password_hash, bio, created_at
 		FROM users WHERE id = ?`, id)
 }
 
@@ -486,7 +529,7 @@ func (s *Store) UpdateProfile(userID int64, name, bio, avatarURL string) (*model
 // GetUserBySession returns the user behind a live (non-expired) session token.
 // Returns sql.ErrNoRows when the token is unknown or expired.
 func (s *Store) GetUserBySession(token string) (*models.User, error) {
-	return s.getUser(`SELECT u.id, u.provider, u.provider_user_id, u.name, u.email, u.avatar_url, u.bio, u.created_at
+	return s.getUser(`SELECT u.id, u.provider, u.provider_user_id, u.name, u.email, u.avatar_url, u.password_hash, u.bio, u.created_at
 		FROM users u
 		JOIN sessions s ON s.user_id = u.id
 		WHERE s.token = ? AND s.expires_at > ?`, token, time.Now().Unix())
@@ -496,7 +539,7 @@ func (s *Store) getUser(query string, args ...any) (*models.User, error) {
 	var u models.User
 	var created int64
 	err := s.db.QueryRow(query, args...).Scan(
-		&u.ID, &u.Provider, &u.ProviderUserID, &u.Name, &u.Email, &u.AvatarURL, &u.Bio, &created)
+		&u.ID, &u.Provider, &u.ProviderUserID, &u.Name, &u.Email, &u.AvatarURL, &u.PasswordHash, &u.Bio, &created)
 	if err != nil {
 		return nil, err
 	}
