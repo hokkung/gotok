@@ -1,38 +1,24 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/service"
 	"github.com/hokkung/gotok/internal/store"
 )
-
-// sessionTTL is how long a login session stays valid.
-const sessionTTL = 30 * 24 * time.Hour
 
 // sessionCookie mirrors middleware.SessionCookie; kept here so handlers don't
 // depend on the magic string when setting/clearing the cookie.
 const sessionCookie = middleware.SessionCookie
 
-func newSessionToken() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return randID(16) // fall back to the helper; never return empty
-	}
-	return hex.EncodeToString(b)
-}
-
 func setSessionCookie(c *gin.Context, token string) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(sessionCookie, token, int(sessionTTL.Seconds()), "/", "", false, true)
+	c.SetCookie(sessionCookie, token, int(service.SessionTTL.Seconds()), "/", "", false, true)
 }
 
 func clearSessionCookie(c *gin.Context) {
@@ -73,15 +59,9 @@ func (h *Handlers) Me(c *gin.Context) {
 //	@Failure		500		{object}	ErrorResponse
 //	@Router			/auth/demo [post]
 func (h *Handlers) LoginDemo(c *gin.Context) {
-	bid := randID(6)
-	u, err := h.store.CreateOrUpdateUser(c.Request.Context(), "demo", bid, "Demo "+bid, "demo-"+bid+"@gotok.local", "")
+	u, token, err := h.auth.LoginDemo(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not start demo session"})
-		return
-	}
-	token := newSessionToken()
-	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
 	setSessionCookie(c, token)
@@ -92,27 +72,16 @@ func (h *Handlers) LoginDemo(c *gin.Context) {
 // generic "invalid email or password" message is returned for both an unknown
 // email and a wrong password to prevent user enumeration.
 func (h *Handlers) Login(c *gin.Context) {
-	email := normalizeEmail(c.PostForm("email"))
-	password := c.PostForm("password")
-	if email == "" || password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password are required"})
-		return
-	}
-
-	u, err := h.store.GetUserByEmail(c.Request.Context(), email)
-	if err != nil || u.PasswordHash == "" {
-		// Unknown email, or an SSO/demo account with no password set.
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
-		return
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
-		return
-	}
-
-	token := newSessionToken()
-	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
+	u, token, err := h.auth.LoginWithPassword(c.Request.Context(), c.PostForm("email"), c.PostForm("password"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrMissingCredentials):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "email and password are required"})
+		case errors.Is(err, service.ErrInvalidCredentials):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not log in"})
+		}
 		return
 	}
 	setSessionCookie(c, token)
@@ -121,51 +90,24 @@ func (h *Handlers) Login(c *gin.Context) {
 
 // Register creates a new email/password account and starts a session.
 func (h *Handlers) Register(c *gin.Context) {
-	name := strings.TrimSpace(c.PostForm("name"))
-	email := normalizeEmail(c.PostForm("email"))
-	password := c.PostForm("password")
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
-		return
-	}
-	if !strings.Contains(email, "@") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "a valid email is required"})
-		return
-	}
-	if len(password) < 8 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 8 characters"})
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	u, token, err := h.auth.Register(c.Request.Context(), c.PostForm("name"), c.PostForm("email"), c.PostForm("password"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not hash password"})
-		return
-	}
-
-	u, err := h.store.CreateUserWithPassword(c.Request.Context(), name, email, string(hash))
-	if err != nil {
-		if errors.Is(err, store.ErrEmailExists) {
+		switch {
+		case errors.Is(err, service.ErrNameRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		case errors.Is(err, service.ErrInvalidEmail):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "a valid email is required"})
+		case errors.Is(err, service.ErrPasswordTooShort):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 8 characters"})
+		case errors.Is(err, store.ErrEmailExists):
 			c.JSON(http.StatusConflict, gin.H{"error": "an account with that email already exists"})
-			return
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create account"})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create account"})
-		return
-	}
-
-	token := newSessionToken()
-	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
 	setSessionCookie(c, token)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "user": u, "redirect": validNext(c.PostForm("next"), "/feed")})
-}
-
-// normalizeEmail trims surrounding whitespace and lower-cases the email so
-// lookups are case-insensitive.
-func normalizeEmail(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
 }
 
 // LoginGoogle godoc
@@ -195,7 +137,7 @@ func (h *Handlers) LoginFacebook(c *gin.Context) {
 // Logout ends the current session (if any) and clears the cookie.
 func (h *Handlers) Logout(c *gin.Context) {
 	if token, err := c.Cookie(sessionCookie); err == nil && token != "" {
-		_ = h.store.DeleteSession(c.Request.Context(), token)
+		_ = h.auth.Logout(c.Request.Context(), token)
 	}
 	clearSessionCookie(c)
 	c.Redirect(http.StatusFound, "/feed")

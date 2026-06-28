@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/hokkung/gotok/internal/chat"
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/service"
 )
 
 // ChatPage renders the chat inbox (conversation list) page.
@@ -34,23 +36,12 @@ func (h *Handlers) ListConversations(c *gin.Context) {
 	cursor, _ := strconv.ParseInt(c.DefaultQuery("cursor", "0"), 10, 64)
 	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
 
-	convs, err := h.store.ListConversations(c.Request.Context(), u.ID, cursor, limit)
+	convs, next, err := h.chat.ListConversations(c.Request.Context(), u.ID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load conversations"})
 		return
 	}
 
-	// Enrich with online presence for DM counterparts.
-	for i := range convs {
-		if convs[i].OtherUserID > 0 {
-			convs[i].Online = h.hub.IsOnline(c.Request.Context(), convs[i].OtherUserID)
-		}
-	}
-
-	next := int64(0)
-	if len(convs) > 0 {
-		next = convs[len(convs)-1].ID
-	}
 	c.JSON(http.StatusOK, gin.H{"conversations": convs, "next": next})
 }
 
@@ -83,24 +74,16 @@ func (h *Handlers) CreateConversation(c *gin.Context) {
 		return
 	}
 
-	// Group conversation.
+	var conv any
+	var err error
 	if len(req.UserIDs) >= 2 {
-		allIDs := append([]int64{u.ID}, req.UserIDs...)
-		conv, err := h.store.CreateGroupConversation(c.Request.Context(), req.Title, allIDs)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create conversation"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"conversation": conv})
-		return
-	}
-
-	// 1-on-1 DM.
-	if req.UserID == 0 {
+		conv, err = h.chat.CreateGroupConversation(c.Request.Context(), u.ID, req.UserIDs, req.Title)
+	} else if req.UserID != 0 {
+		conv, err = h.chat.CreateDMConversation(c.Request.Context(), u.ID, req.UserID)
+	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id or user_ids is required"})
 		return
 	}
-	conv, err := h.store.GetOrCreateDMConversation(c.Request.Context(), u.ID, req.UserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create conversation"})
 		return
@@ -132,25 +115,19 @@ func (h *Handlers) ListMessages(c *gin.Context) {
 		return
 	}
 
-	ok, err := h.store.IsParticipant(c.Request.Context(), convID, u.ID)
-	if err != nil || !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
-		return
-	}
-
 	before, _ := strconv.ParseInt(c.DefaultQuery("before", "0"), 10, 64)
 	limit, _ := strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 64)
 
-	msgs, err := h.store.ListMessages(c.Request.Context(), convID, before, limit)
+	msgs, next, err := h.chat.ListMessages(c.Request.Context(), u.ID, convID, before, limit)
 	if err != nil {
+		if errors.Is(err, service.ErrNotParticipant) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load messages"})
 		return
 	}
 
-	next := int64(0)
-	if len(msgs) > 0 {
-		next = msgs[len(msgs)-1].ID
-	}
 	c.JSON(http.StatusOK, gin.H{"messages": msgs, "next": next})
 }
 
@@ -169,20 +146,18 @@ func (h *Handlers) SendMessage(c *gin.Context) {
 		return
 	}
 
-	ok, err := h.store.IsParticipant(c.Request.Context(), convID, u.ID)
-	if err != nil || !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
-		return
-	}
-
 	var req SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "text is required"})
 		return
 	}
 
-	msg, participants, err := h.store.CreateMessage(c.Request.Context(), convID, u.ID, req.Text)
+	msg, participants, err := h.chat.SendMessage(c.Request.Context(), u.ID, convID, req.Text)
 	if err != nil {
+		if errors.Is(err, service.ErrNotParticipant) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not send message"})
 		return
 	}
@@ -229,25 +204,16 @@ func (h *Handlers) MarkConversationRead(c *gin.Context) {
 		return
 	}
 
-	ok, err := h.store.IsParticipant(c.Request.Context(), convID, u.ID)
-	if err != nil || !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
-		return
-	}
-
 	body := struct {
 		MessageID int64 `json:"message_id"`
 	}{}
 	_ = c.ShouldBindJSON(&body)
-	if body.MessageID == 0 {
-		// If no message_id is provided, mark up to the latest message.
-		msgs, err := h.store.ListMessages(c.Request.Context(), convID, 0, 1)
-		if err == nil && len(msgs) > 0 {
-			body.MessageID = msgs[0].ID
-		}
-	}
 
-	if err := h.store.MarkRead(c.Request.Context(), convID, u.ID, body.MessageID); err != nil {
+	if err := h.chat.MarkConversationRead(c.Request.Context(), u.ID, convID, body.MessageID); err != nil {
+		if errors.Is(err, service.ErrNotParticipant) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not a participant"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not mark read"})
 		return
 	}
@@ -269,7 +235,7 @@ func (h *Handlers) GetPresence(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"online": h.hub.IsOnline(c.Request.Context(), id)})
+	c.JSON(http.StatusOK, gin.H{"online": h.chat.GetPresence(c.Request.Context(), id)})
 }
 
 // HandleWebSocket upgrades to WebSocket. Must be behind RequireAuth.

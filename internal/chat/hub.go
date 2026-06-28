@@ -14,16 +14,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
-	"github.com/hokkung/gotok/internal/models"
+	"github.com/hokkung/gotok/internal/service"
 )
-
-// StoreInterface is the subset of the store that the chat hub needs. Keeping it
-// as an interface makes the hub testable without a real database.
-type StoreInterface interface {
-	CreateMessage(ctx context.Context, convID, senderID int64, text string) (*models.Message, []int64, error)
-	MarkRead(ctx context.Context, convID, userID, msgID int64) error
-	IsParticipant(ctx context.Context, convID, userID int64) (bool, error)
-}
 
 // Envelope is the wire format for messages sent to and received from WebSocket
 // clients.
@@ -56,7 +48,7 @@ type Client struct {
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[int64]map[*Client]struct{} // userID → set of connections
-	store   StoreInterface
+	chat    *service.ChatService
 	broker  Broker
 	logger  *zap.Logger
 
@@ -72,11 +64,11 @@ func WithLogger(lg *zap.Logger) Option {
 	return func(h *Hub) { h.logger = lg }
 }
 
-// NewHub creates a Hub wired to the given store and broker.
-func NewHub(st StoreInterface, b Broker, opts ...Option) *Hub {
+// NewHub creates a Hub wired to the given chat service and broker.
+func NewHub(cs *service.ChatService, b Broker, opts ...Option) *Hub {
 	h := &Hub{
 		clients:    make(map[int64]map[*Client]struct{}),
-		store:      st,
+		chat:       cs,
 		broker:     b,
 		logger:     zap.NewNop(),
 		register:   make(chan *Client, 64),
@@ -218,18 +210,9 @@ func (h *Hub) closeAll() {
 // client: persists the message, then publishes it to all participants via
 // Redis pub/sub.
 func (h *Hub) HandleMessage(ctx context.Context, userID int64, env Envelope) error {
-	// Verify the sender is a participant in the conversation.
-	ok, err := h.store.IsParticipant(ctx, env.ConversationID, userID)
+	msg, participants, err := h.chat.SendMessage(ctx, userID, env.ConversationID, env.Text)
 	if err != nil {
-		return fmt.Errorf("check participation: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("not a participant in conversation %d", env.ConversationID)
-	}
-
-	msg, participants, err := h.store.CreateMessage(ctx, env.ConversationID, userID, env.Text)
-	if err != nil {
-		return fmt.Errorf("create message: %w", err)
+		return fmt.Errorf("send message: %w", err)
 	}
 
 	outgoing := Envelope{
@@ -266,7 +249,7 @@ func (h *Hub) HandleMessage(ctx context.Context, userID int64, env Envelope) err
 // HandleRead processes an incoming "read" envelope: marks messages as read and
 // notifies the other participant(s) via Redis.
 func (h *Hub) HandleRead(ctx context.Context, userID int64, env Envelope) error {
-	if err := h.store.MarkRead(ctx, env.ConversationID, userID, env.MessageID); err != nil {
+	if err := h.chat.MarkConversationRead(ctx, userID, env.ConversationID, env.MessageID); err != nil {
 		return fmt.Errorf("mark read: %w", err)
 	}
 
@@ -282,7 +265,7 @@ func (h *Hub) HandleRead(ctx context.Context, userID int64, env Envelope) error 
 	}
 
 	// Notify all participants that this user read up to this message.
-	participantIDs, err := h.getParticipantIDs(ctx, env.ConversationID)
+	participantIDs, err := h.chat.GetParticipantIDs(ctx, env.ConversationID)
 	if err != nil {
 		h.logger.Error("get participants for read receipt", zap.Error(err))
 		return nil
@@ -310,17 +293,6 @@ func (h *Hub) IsOnline(ctx context.Context, userID int64) bool {
 // the REST SendMessage handler as a fallback for clients without WebSocket.
 func (h *Hub) PublishToUser(ctx context.Context, userID int64, payload []byte) error {
 	return h.broker.Publish(ctx, userID, payload)
-}
-
-// getParticipantIDs returns all participant user IDs for a conversation.
-func (h *Hub) getParticipantIDs(ctx context.Context, convID int64) ([]int64, error) {
-	type participantGetter interface {
-		GetParticipants(context.Context, int64) ([]int64, error)
-	}
-	if pg, ok := h.store.(participantGetter); ok {
-		return pg.GetParticipants(ctx, convID)
-	}
-	return nil, fmt.Errorf("store does not support GetParticipants")
 }
 
 // StartPresenceHeartbeat periodically refreshes the presence TTL for all

@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/service"
 )
 
 // ToggleLike godoc
@@ -30,12 +32,12 @@ func (h *Handlers) ToggleLike(c *gin.Context) {
 		return
 	}
 	u := middleware.UserFromContext(c)
-	if _, err := h.store.GetVideo(c.Request.Context(), u.ID, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "video not found"})
-		return
-	}
-	liked, count, err := h.store.ToggleLike(c.Request.Context(), u.ID, id)
+	liked, count, err := h.video.ToggleLike(c.Request.Context(), u.ID, id)
 	if err != nil {
+		if errors.Is(err, service.ErrVideoNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "video not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not toggle like"})
 		return
 	}
@@ -58,6 +60,6 @@ func (h *Handlers) View(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 		return
 	}
-	h.store.IncrementViews(c.Request.Context(), id)
+	h.video.IncrementViews(c.Request.Context(), id)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

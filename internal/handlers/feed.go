@@ -37,16 +37,12 @@ func (h *Handlers) ListVideos(c *gin.Context) {
 		limit = 20
 	}
 
-	videos, err := h.store.ListVideos(c.Request.Context(), userID, cursor, limit)
+	videos, next, err := h.video.ListFeedVideos(c.Request.Context(), userID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load videos"})
 		return
 	}
 
-	next := int64(0)
-	if len(videos) > 0 {
-		next = videos[len(videos)-1].ID
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"videos": videos,
 		"next":   next,
