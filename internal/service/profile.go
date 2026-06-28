@@ -18,8 +18,8 @@ var ErrUserNotFound = errors.New("user not found")
 // ErrBioTooLong is returned when the bio exceeds the maximum length.
 var ErrBioTooLong = errors.New("bio too long")
 
-// ErrNameRequired is returned when the display name is empty during a profile
-// edit.
+// ErrProfileNameRequired is returned when the display name is empty during a
+// profile edit.
 var ErrProfileNameRequired = errors.New("name is required")
 
 // ProfileStore is the persistence interface consumed by ProfileService.

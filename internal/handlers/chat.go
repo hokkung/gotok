@@ -76,11 +76,12 @@ func (h *Handlers) CreateConversation(c *gin.Context) {
 
 	var conv any
 	var err error
-	if len(req.UserIDs) >= 2 {
+	switch {
+	case len(req.UserIDs) >= 2:
 		conv, err = h.chat.CreateGroupConversation(c.Request.Context(), u.ID, req.UserIDs, req.Title)
-	} else if req.UserID != 0 {
+	case req.UserID != 0:
 		conv, err = h.chat.CreateDMConversation(c.Request.Context(), u.ID, req.UserID)
-	} else {
+	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id or user_ids is required"})
 		return
 	}
