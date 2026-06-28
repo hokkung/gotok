@@ -149,4 +149,26 @@
       }
     });
   }
+
+  var messageBtn = document.getElementById('messageBtn');
+  if (messageBtn) {
+    messageBtn.addEventListener('click', async function() {
+      messageBtn.disabled = true;
+      var userId = parseInt(messageBtn.getAttribute('data-user-id'), 10);
+      try {
+        var res = await fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId })
+        });
+        if (res.status === 401) { window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname); return; }
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'could not start conversation');
+        window.location.href = '/chat?c=' + data.conversation.id;
+      } catch (err) {
+        messageBtn.disabled = false;
+        alert(err.message);
+      }
+    });
+  }
 })();

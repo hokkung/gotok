@@ -14,6 +14,8 @@
     <div class="profile-stat">{{.VideoCount}} videos · {{.LikedCount}} liked</div>
     {{if .IsOwner}}
       <button id="editProfileBtn" class="edit-profile-btn" type="button">Edit profile</button>
+    {{else if .IsLoggedIn}}
+      <button id="messageBtn" class="edit-profile-btn" type="button" data-user-id="{{.Profile.ID}}">💬 Message</button>
     {{end}}
   </div>
   <div class="profile-tabs">

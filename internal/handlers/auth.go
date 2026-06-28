@@ -50,6 +50,7 @@ func (h *Handlers) LoginPage(c *gin.Context) {
 }
 
 // Me godoc
+//
 //	@Summary		Current user
 //	@Description	Returns the currently logged-in user, or null when the request is anonymous.
 //	@Tags			auth
@@ -61,6 +62,7 @@ func (h *Handlers) Me(c *gin.Context) {
 }
 
 // LoginDemo godoc
+//
 //	@Summary		Demo login
 //	@Description	Creates (or reuses) a "demo" user and starts a session cookie so the auth-gated actions (like/comment) can be exercised. Returns the user and a redirect target.
 //	@Tags			auth
@@ -72,13 +74,13 @@ func (h *Handlers) Me(c *gin.Context) {
 //	@Router			/auth/demo [post]
 func (h *Handlers) LoginDemo(c *gin.Context) {
 	bid := randID(6)
-	u, err := h.store.CreateOrUpdateUser("demo", bid, "Demo "+bid, "demo-"+bid+"@gotok.local", "")
+	u, err := h.store.CreateOrUpdateUser(c.Request.Context(), "demo", bid, "Demo "+bid, "demo-"+bid+"@gotok.local", "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not start demo session"})
 		return
 	}
 	token := newSessionToken()
-	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
@@ -86,13 +88,6 @@ func (h *Handlers) LoginDemo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "user": u, "redirect": validNext(c.PostForm("next"), "/feed")})
 }
 
-// LoginGoogle godoc
-//	@Summary		Google SSO (not implemented)
-//	@Description	Placeholder for Google sign-in. Always returns 501 until real SSO is wired up.
-//	@Tags			auth
-//	@Produce		json
-//	@Failure		501	{object}	ErrorResponse
-//	@Router			/auth/google [post]
 // Login authenticates an email/password account and starts a session. A single
 // generic "invalid email or password" message is returned for both an unknown
 // email and a wrong password to prevent user enumeration.
@@ -104,7 +99,7 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 
-	u, err := h.store.GetUserByEmail(email)
+	u, err := h.store.GetUserByEmail(c.Request.Context(), email)
 	if err != nil || u.PasswordHash == "" {
 		// Unknown email, or an SSO/demo account with no password set.
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
@@ -116,7 +111,7 @@ func (h *Handlers) Login(c *gin.Context) {
 	}
 
 	token := newSessionToken()
-	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
@@ -148,7 +143,7 @@ func (h *Handlers) Register(c *gin.Context) {
 		return
 	}
 
-	u, err := h.store.CreateUserWithPassword(name, email, string(hash))
+	u, err := h.store.CreateUserWithPassword(c.Request.Context(), name, email, string(hash))
 	if err != nil {
 		if errors.Is(err, store.ErrEmailExists) {
 			c.JSON(http.StatusConflict, gin.H{"error": "an account with that email already exists"})
@@ -159,7 +154,7 @@ func (h *Handlers) Register(c *gin.Context) {
 	}
 
 	token := newSessionToken()
-	if err := h.store.CreateSession(u.ID, token, sessionTTL); err != nil {
+	if err := h.store.CreateSession(c.Request.Context(), u.ID, token, sessionTTL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
 		return
 	}
@@ -173,11 +168,20 @@ func normalizeEmail(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
+// LoginGoogle godoc
+//
+//	@Summary		Google SSO (not implemented)
+//	@Description	Placeholder for Google sign-in. Always returns 501 until real SSO is wired up.
+//	@Tags			auth
+//	@Produce		json
+//	@Failure		501	{object}	ErrorResponse
+//	@Router			/auth/google [post]
 func (h *Handlers) LoginGoogle(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "Google sign-in is coming soon"})
 }
 
 // LoginFacebook godoc
+//
 //	@Summary		Facebook SSO (not implemented)
 //	@Description	Placeholder for Facebook sign-in. Always returns 501 until real SSO is wired up.
 //	@Tags			auth
@@ -191,7 +195,7 @@ func (h *Handlers) LoginFacebook(c *gin.Context) {
 // Logout ends the current session (if any) and clears the cookie.
 func (h *Handlers) Logout(c *gin.Context) {
 	if token, err := c.Cookie(sessionCookie); err == nil && token != "" {
-		_ = h.store.DeleteSession(token)
+		_ = h.store.DeleteSession(c.Request.Context(), token)
 	}
 	clearSessionCookie(c)
 	c.Redirect(http.StatusFound, "/feed")

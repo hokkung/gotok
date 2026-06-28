@@ -37,13 +37,13 @@ func (h *Handlers) ProfilePage(c *gin.Context) {
 		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	profile, err := h.store.GetUser(id)
+	profile, err := h.store.GetUser(c.Request.Context(), id)
 	if err != nil {
 		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	videoCount, _ := h.store.CountVideosByUser(id)
-	likedCount, _ := h.store.CountLikedVideos(id)
+	videoCount, _ := h.store.CountVideosByUser(c.Request.Context(), id)
+	likedCount, _ := h.store.CountLikedVideos(c.Request.Context(), id)
 
 	data := h.base(c, profile.Name)
 	data["Profile"] = profile
@@ -53,14 +53,20 @@ func (h *Handlers) ProfilePage(c *gin.Context) {
 	// IsOwner lets the template show the "Edit profile" button only to the
 	// profile owner.
 	isOwner := false
-	if u := middleware.UserFromContext(c); u != nil && u.ID == id {
-		isOwner = true
+	isLoggedIn := false
+	if u := middleware.UserFromContext(c); u != nil {
+		isLoggedIn = true
+		if u.ID == id {
+			isOwner = true
+		}
 	}
 	data["IsOwner"] = isOwner
+	data["IsLoggedIn"] = isLoggedIn
 	c.HTML(http.StatusOK, "profile.html", data)
 }
 
 // ListVideosByUser godoc
+//
 //	@Summary		List a user's videos
 //	@Description	Returns a cursor-paginated page of a single user's videos (newest first) with the requesting viewer's like state.
 //	@Tags			users
@@ -88,7 +94,7 @@ func (h *Handlers) ListVideosByUser(c *gin.Context) {
 		limit = 24
 	}
 
-	videos, err := h.store.ListVideosByUser(id, viewerID, cursor, limit)
+	videos, err := h.store.ListVideosByUser(c.Request.Context(), id, viewerID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load videos"})
 		return
@@ -101,6 +107,7 @@ func (h *Handlers) ListVideosByUser(c *gin.Context) {
 }
 
 // ListLikedVideos godoc
+//
 //	@Summary		List videos a user has liked
 //	@Description	Returns a cursor-paginated page of the videos a user has liked (most recently liked first) with the requesting viewer's like state.
 //	@Tags			users
@@ -128,7 +135,7 @@ func (h *Handlers) ListLikedVideos(c *gin.Context) {
 		limit = 24
 	}
 
-	videos, next, err := h.store.ListLikedVideos(id, viewerID, cursor, limit)
+	videos, next, err := h.store.ListLikedVideos(c.Request.Context(), id, viewerID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load liked videos"})
 		return
@@ -137,6 +144,7 @@ func (h *Handlers) ListLikedVideos(c *gin.Context) {
 }
 
 // EditProfile godoc
+//
 //	@Summary		Edit profile
 //	@Description	Updates the current user's editable profile fields (name, bio, and optionally a new avatar image). Only the logged-in user can edit their own profile; on success it returns the updated user.
 //	@Tags			users
@@ -204,7 +212,7 @@ func (h *Handlers) EditProfile(c *gin.Context) {
 		avatarURL = "/uploads/" + stored
 	}
 
-	updated, err := h.store.UpdateProfile(u.ID, name, bio, avatarURL)
+	updated, err := h.store.UpdateProfile(c.Request.Context(), u.ID, name, bio, avatarURL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update profile"})
 		return

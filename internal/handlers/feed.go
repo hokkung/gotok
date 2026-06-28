@@ -15,6 +15,7 @@ func (h *Handlers) FeedPage(c *gin.Context) {
 }
 
 // ListVideos godoc
+//
 //	@Summary		List videos for the feed
 //	@Description	Returns a cursor-paginated page of videos (newest first) for infinite scroll.
 //	@Tags			feed
@@ -36,7 +37,7 @@ func (h *Handlers) ListVideos(c *gin.Context) {
 		limit = 20
 	}
 
-	videos, err := h.store.ListVideos(userID, cursor, limit)
+	videos, err := h.store.ListVideos(c.Request.Context(), userID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load videos"})
 		return

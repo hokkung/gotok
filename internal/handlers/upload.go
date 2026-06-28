@@ -39,6 +39,7 @@ func (h *Handlers) UploadPage(c *gin.Context) {
 }
 
 // Upload godoc
+//
 //	@Summary		Upload a video
 //	@Description	Handles a multipart video upload: validates type/size, stores it on the local filesystem, and records metadata. Accepted types: mp4, webm, mov, mkv.
 //	@Tags			upload
@@ -95,7 +96,7 @@ func (h *Handlers) Upload(c *gin.Context) {
 	}
 
 	u := middleware.UserFromContext(c)
-	id, err := h.store.CreateVideo(&models.Video{
+	id, err := h.store.CreateVideo(c.Request.Context(), &models.Video{
 		UserID:   u.ID,
 		Title:    title,
 		Filename: stored,

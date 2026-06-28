@@ -6,15 +6,16 @@ A complete walkthrough of how the **GoTok** system works. Read this top‑to‑b
 
 ## 1. What is GoTok?
 
-GoTok is a **single‑binary, TikTok‑style vertical‑video web app** written in Go.
+GoTok is a **TikTok‑style vertical‑video web app with real‑time chat**, written in Go.
 
-- **Browsing is anonymous; interactions require login.** Every visitor gets a stable `cid` cookie, and can browse the feed and read comments freely. **Liking, commenting, and uploading are gated behind a session login** (SSO via Google/Facebook is stubbed; a demo login is wired up so the flow is testable now).
+- **Browsing is anonymous; interactions require login.** Every visitor can browse the feed and read comments freely. **Liking, commenting, uploading, and chatting are gated behind a session login** (SSO via Google/Facebook is stubbed; a demo login is wired up so the flow is testable now).
 - **Vertical "for you" feed** — full‑screen videos that auto‑play as you scroll, snap one per screen, mute/unmute on tap, like on double‑tap.
 - **Upload your own videos** (mp4 / webm / mov / mkv, up to 200 MB), stored on local disk and **attributed to the uploading user**.
 - **User profiles** (`/u/:id`) — every video records its uploader; a profile page lists a creator's videos in a 3‑column grid via `ListVideosByUser`.
-- **Likes, comments, view counting**, and infinite scroll pagination — all backed by a SQLite database.
+- **Likes, comments, view counting**, and infinite scroll pagination — all backed by PostgreSQL.
+- **Real‑time chat** — 1‑on‑1 DMs and group conversations over WebSocket, with **horizontal scaling** via Redis pub/sub for cross‑instance message routing and presence tracking.
 
-It is intentionally small and self‑contained: one Go binary, one SQLite file, one uploads folder.
+The system is designed for multi‑instance deployment: PostgreSQL for shared state, Redis for pub/sub + presence, multiple GoTok instances behind a load balancer.
 
 ---
 
@@ -22,14 +23,16 @@ It is intentionally small and self‑contained: one Go binary, one SQLite file, 
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| Language | **Go 1.25.6** | `cmd/gotok` entry point + `internal/*` packages. |
+| Language | **Go 1.25** | `cmd/gotok` entry point + `internal/*` packages. |
 | Web framework | **Gin** (`github.com/gin-gonic/gin v1.12.0`) | HTTP routing, middleware, HTML templates, multipart upload. |
-| Database | **SQLite** via `modernc.org/sqlite` | Pure‑Go driver (no CGO required). |
+| Database | **PostgreSQL** via `pgx/v5/stdlib` | Replaces SQLite. Supports concurrent writers across instances. Connection pool: 25 open / 10 idle. |
+| Migrations | **golang‑migrate** (`v4`) | Embedded SQL files in `internal/store/migrations/`. Runs automatically on startup. |
+| Message broker | **Redis** (`go‑redis/v9`) | Pub/sub for WebSocket cross‑instance delivery + presence keys with TTL. |
+| WebSocket | **coder/websocket** (`v1.8`) | Context‑native WS library. Read/write pumps with deadlines + size limits. |
 | Templating | Gin's built‑in `html/template` loader | `LoadHTMLGlob("web/templates/*")`. |
-| Frontend | **Vanilla HTML/CSS/JS** (no framework) | `fetch` + DOM manipulation, `IntersectionObserver`, CSS scroll‑snap. |
+| Frontend | **Vanilla HTML/CSS/JS** (no framework) | `fetch` + DOM manipulation, `IntersectionObserver`, CSS scroll‑snap, native `WebSocket`. |
 | Storage | Local filesystem | Uploaded videos live under `data/uploads/`. |
-
-Key indirect deps worth knowing: `quic-go` (HTTP/3 capable), `google/uuid`, `go-playground/validator`. These come in transitively via Gin; you rarely touch them directly.
+| Logging | **Zap** (`go.uber.org/zap`) | Structured logging throughout. |
 
 ---
 
@@ -38,47 +41,67 @@ Key indirect deps worth knowing: `quic-go` (HTTP/3 capable), `google/uuid`, `go-
 ```
 gotok/
 ├── cmd/
-│   └── gotok/main.go          # Thin entry point: wires config → store → app.Run()
-├── go.mod / go.sum            # Module `github.com/hokkung/gotok`, Go 1.25.6
-├── Makefile                   # Dev tasks: run, build, serve, vet, fmt, tidy, test, clean, reset
-├── gotok                      # Compiled binary (build artifact)
+│   └── gotok/main.go          # Entry point: config → store → redis → app.Run(ctx)
+├── go.mod / go.sum            # Module `github.com/hokkung/gotok`, Go 1.25
+├── Makefile                   # Dev tasks: run, build, up, down, vet, test, test-race
+├── Dockerfile                 # Multi-stage build (golang → alpine)
+├── docker-compose.yml         # PostgreSQL + Redis + 2 GoTok instances (horizontal scaling)
+├── example.env                # Config template (GOTOK_DATABASE_URL, GOTOK_REDIS_ADDR, …)
 │
 ├── internal/                  # All non‑main Go code (Go's "internal" import protection)
-│   ├── app/app.go             # Gin engine setup + route registration (called by main)
-│   ├── config/config.go       # App config + on‑disk cookie‑secret bootstrap
-│   ├── models/models.go       # Plain structs: Video, VideoWithLike, Like, Comment
-│   ├── store/store.go         # SQLite layer: open, migrate, all SQL queries
-│   ├── middleware/             # Gin middleware: auth, logging, recovery
+│   ├── app/app.go             # Gin engine + Redis client + chat hub + route registration + graceful shutdown
+│   ├── config/config.go       # App config (PostgreSQL DSN, Redis addr, upload dir, cookie secret)
+│   ├── models/models.go       # Plain structs: Video, User, Comment, Conversation, Message, …
+│   ├── store/
+│   │   ├── store.go           # PostgreSQL layer: open, migrate (golang-migrate), all SQL queries (with ctx)
+│   │   ├── chat.go            # Chat store methods: conversations, messages, participants, read receipts
+│   │   ├── embed.go           # //go:embed migrations/*.sql
+│   │   └── migrations/        # Versioned SQL migration files
+│   │       ├── 000001_init.up.sql / .down.sql       # videos, likes, comments, users, sessions
+│   │       └── 000002_chat.up.sql / .down.sql       # conversations, conversation_participants, messages
+│   ├── chat/                  # Real‑time chat layer (WebSocket hub + Redis broker)
+│   │   ├── hub.go             # Per‑instance connection manager (register/unregister/deliver)
+│   │   ├── broker.go          # Redis pub/sub: per‑user channels + presence keys
+│   │   └── ws.go              # WebSocket handler: read/write pumps with deadlines
+│   ├── middleware/
+│   │   ├── auth.go            # Session auth: loads user from cookie on every request
+│   │   └── logger.go          # Zap‑backed access logging + panic recovery
 │   └── handlers/              # HTTP handlers (one concern per file)
-│       ├── handlers.go        #   Handlers struct + constructor (dependency holder)
-│       ├── helpers.go         #   randID() helper for unique filenames
-│       ├── feed.go            #   FeedPage + ListVideos (infinite scroll API)
-│       ├── upload.go          #   UploadPage + Upload (multipart validation/storage)
-│       ├── video.go           #   ServeFile (streams video w/ Range support)
+│       ├── handlers.go        #   Handlers struct + constructor (cfg, store, hub, logger)
+│       ├── helpers.go         #   randID() helper
+│       ├── feed.go            #   FeedPage + ListVideos
+│       ├── upload.go          #   UploadPage + Upload
+│       ├── video.go           #   ServeFile (Range‑aware)
 │       ├── like.go            #   ToggleLike + View
-│       ├── comment.go         #   ListComments + CreateComment
-│       ├── auth.go            #   Login/Logout/Me + session management
-│       └── profile.go         #   ProfilePage + EditProfile
+│       ├── comment.go         #   ListComments + CreateComment (now returns user_id + avatar_url)
+│       ├── auth.go            #   Login/Logout/Me/Register + session management
+│       ├── profile.go         #   ProfilePage + EditProfile + ListLikedVideos
+│       └── chat.go            #   ChatPage + chat REST API + WebSocket upgrade
 │
 ├── web/                       # Frontend assets
-│   ├── templates/             # Gin HTML templates (header/footer partials + pages)
-│   │   ├── layout.html        #   {{define "header"}} / {{define "footer"}}
+│   ├── templates/
+│   │   ├── layout.html        #   Header/footer partials + sidebar nav
 │   │   ├── feed.html          #   The feed shell; loads feed.js
-│   │   └── upload.html        #   The upload form; loads upload.js
+│   │   ├── upload.html        #   Upload form; loads upload.js
+│   │   ├── profile.html       #   Profile page (with Message button); loads profile.js
+│   │   ├── chat.html          #   Chat UI (conversation list + message thread); loads chat.js
+│   │   └── login.html         #   Login page
 │   └── static/
-│       ├── css/style.css      # All styling (feed, upload, comment sheet)
+│       ├── css/style.css      # All styling (feed, chat, comments, profiles)
 │       └── js/
-│           ├── feed.js        # Feed rendering, gestures, likes, comments modal
-│           └── upload.js      # Drag‑and‑drop + form submit
+│           ├── feed.js        # Feed rendering, gestures, likes, clickable comments
+│           ├── upload.js      # Drag‑and‑drop + form submit
+│           ├── profile.js     # Profile tabs + edit modal + Message button
+│           ├── chat.js        # WebSocket client, conversation list, message thread
+│           ├── nav.js         # Hamburger sidebar toggle
+│           └── login.js       # Login form helpers
 │
 └── data/                      # Runtime data (created automatically; do NOT commit)
-    ├── app.db                 # SQLite database
-    ├── app.db-wal / -shm      # SQLite WAL files (live alongside the db)
-    ├── cookie_secret          # 32‑byte hex secret for stable client ids
-    └── uploads/               # Uploaded video files
+    ├── cookie_secret          # 32‑byte hex secret
+    └── uploads/               # Uploaded video + avatar files
 ```
 
-> **Convention:** business logic lives in `internal/`, split by *concern* (app / config / models / store / middleware / handlers). Handlers are further split by *feature* (feed, upload, like, comment, video). Follow this pattern when adding new features.
+> **Convention:** business logic lives in `internal/`, split by *concern* (app / config / models / store / chat / middleware / handlers). Handlers are further split by *feature* (feed, upload, like, comment, video, auth, profile, chat). Follow this pattern when adding new features.
 
 ---
 
@@ -87,26 +110,52 @@ gotok/
 ### Startup (`cmd/gotok/main.go` → `internal/app/app.go`)
 
 ```
-config.Load() ──► logger.New() ──► store.New(cfg.DBPath, lg) ──► app.Run(): gin.New()+zap middleware ──► register routes ──► r.Run(:8080)
+config.Load() → logger.New() → signal.NotifyContext(SIGINT, SIGTERM)
+  → store.New(ctx, databaseURL, lg)     [PostgreSQL + golang-migrate]
+  → app.Run(ctx, cfg, st, lg):
+      redis.NewClient(ping)
+      chat.NewRedisBroker(rdb)
+      chat.NewHub(st, broker)
+      go hub.Run(ctx)                   [event loop: register/unregister/deliver]
+      go hub.StartPresenceHeartbeat(ctx) [30s TTL refresh]
+      gin.New() + middleware + routes
+      go srv.ListenAndServe(:8080)
+      <-ctx.Done()                      [blocks until SIGINT/SIGTERM]
+      srv.Shutdown(10s timeout)         [graceful: drain HTTP, close hub, close Redis]
 ```
 
-1. **`config.Load()`** — ensures `data/` and `data/uploads/` exist; generates and persists a 32‑byte `cookie_secret` on first run (so session tokens survive restarts). Returns hardcoded defaults: `:8080`, 200 MB upload cap, paths under `data/`.
-2. **`store.New(dbPath)`** — opens SQLite in WAL mode with a 5 s busy timeout, sets **`SetMaxOpenConns(1)`** (single writer avoids "database is locked"), runs migrations.
-3. **Gin setup** — `gin.New()` + zap-backed `GinLogger`/`GinRecovery` middleware (access logs and panics flow through `go.uber.org/zap` rather than the std logger), sets `MaxMultipartMemory = 32 MiB` (larger uploads spill to temp files), registers the `Auth()` middleware (loads the logged-in user from the `session` cookie on every request), loads HTML templates, mounts `/static`.
-4. **Routes** are registered (see §6), then `r.Run(":8080")` blocks and serves.
+1. **`config.Load()`** — reads `.env` / environment; ensures `data/` and `data/uploads/` exist; generates and persists a 32‑byte `cookie_secret` on first run.
+2. **`signal.NotifyContext`** — creates an app‑level context cancelled on `SIGINT`/`SIGTERM`, enabling graceful shutdown.
+3. **`store.New(ctx, databaseURL, lg)`** — opens PostgreSQL via `pgx/v5/stdlib`, configures connection pool (`SetMaxOpenConns(25)`, `SetMaxIdleConns(10)`, 5‑min lifetime), pings, runs migrations via golang‑migrate.
+4. **Redis + Chat Hub** — creates a Redis client (pings to verify connectivity), wraps it in a `RedisBroker`, creates a `Hub` wired to the store + broker, starts the hub event loop and presence heartbeat goroutines.
+5. **Gin setup** — `gin.New()` + zap‑backed middleware, `Auth()` on every request, HTML templates, `/static`, routes.
+6. **Graceful shutdown** — on signal: `srv.Shutdown()` drains in‑flight HTTP, hub closes all WS connections and unsubscribes from Redis, Redis client closes.
 
 ### A typical feed request
 
 ```
 Browser (session cookie) ──► GET /api/videos?cursor=N&limit=20
    │
-   ├─ middleware.Auth(): read session cookie → load user (nil if anonymous)
-   ├─ handlers.ListVideos(): read userID (0 = anon) + cursor + limit
-   │     └─ store.ListVideos(userID, cursor, limit) → SQL EXISTS() for per‑user like state
+   ├─ middleware.Auth(): read session cookie → store.GetUserBySession(ctx, token) → load user
+   ├─ handlers.ListVideos(): read userID + cursor + limit
+   │     └─ store.ListVideos(ctx, userID, cursor, limit) → SQL EXISTS() for per‑user like state
    └─ responds JSON { videos: [...], next: <last id or 0> }
 ```
 
-The `next` cursor is the **last item's ID**. The client appends it to the next request; the store returns rows with `id < cursor` (newest‑first, keyset pagination).
+### Horizontal scaling: chat message flow
+
+```
+User A (Instance :8080) sends message via WebSocket
+  → hub.HandleMessage(ctx, senderID, env):
+      1. store.IsParticipant(ctx, convID, senderID) → verify access
+      2. store.CreateMessage(ctx, convID, senderID, text) → persist to PostgreSQL
+      3. broker.Publish(recipientID, payload) for each participant → Redis pub/sub
+         (including the sender — so multi‑tab/multi‑device works)
+  → Instance :8081 Redis subscriber receives the payload
+  → hub.deliverLocal(recipientID, payload) → User B's WebSocket on Instance :8081
+
+Presence: SET presence:<userID> EX 120 on connect, refreshed every 30s, DEL on disconnect.
+```
 
 ---
 
@@ -114,107 +163,137 @@ The `next` cursor is the **last item's ID**. The client appends it to the next r
 
 ### 5.1 `internal/config/config.go`
 
-Holds `Config{ DataDir, UploadDir, DBPath, MaxUploadMB, ListenAddr, CookieSecret }`.
+Holds `Config{ DataDir, UploadDir, MaxUploadMB, ListenAddr, CookieSecret, DatabaseURL, RedisAddr, Dev }`.
 
-- All values are **hardcoded defaults** (no env vars / flags yet). If you want to make the port or upload limit configurable, this is the place.
-- `loadOrCreateSecret()` persists a random hex string to `data/cookie_secret` (mode `0600`). The secret currently isn't used to *sign* the `session` cookie (the cookie is just a random token), but it's there for future signed‑cookie schemes.
+- Values are bound from the environment via `caarlos0/env` struct tags, with defaults.
+- **`DatabaseURL`** — PostgreSQL connection string (e.g. `postgres://gotok:gotok@localhost:5432/gotok?sslmode=disable`). Required — no SQLite fallback.
+- **`RedisAddr`** — Redis address for WebSocket pub/sub + presence. Required for chat.
+- `loadOrCreateSecret()` persists a random hex string to `data/cookie_secret`.
 
 ### 5.2 `internal/models/models.go`
 
 Plain data structs with `json` tags matching the API responses:
 
-- **`Video`** — `FilePath` is tagged `json:"-"` so it's **never** serialized to clients (server‑only absolute path).
-- **`VideoWithLike`** — embeds `Video` and adds `Liked bool` (per‑requester like state). This is what `ListVideos` and `GetVideo` return.
-- **`Like`**, **`Comment`** — straightforward. `Comment.Author` is a *derived* display name (e.g. `guest_a1b2c3`), not stored — computed by `authorName(clientID)` in the store.
+- **`Video`** — `FilePath` is tagged `json:"-"` (never serialized).
+- **`VideoWithLike`** — embeds `Video` + `Liked bool`.
+- **`Like`** — straightforward.
+- **`Comment`** — now includes `UserID int64` and `AvatarURL string` (resolved via JOIN) so the frontend can link to the commenter's profile.
+- **`User`** — `ProviderUserID` and `PasswordHash` are tagged `json:"-"`.
+- **`Conversation`** — `{ID, Type ("dm"|"group"), Title, CreatedAt}`.
+- **`ConversationPreview`** — enriched for list display: other user info, last message preview, unread count, online status.
+- **`Message`** — `{ID, ConversationID, SenderID, SenderName, SenderAvatar, Text, CreatedAt}`.
+- **`ConversationParticipant`** — `{UserID, Name, AvatarURL, LastReadMsgID}`.
 
-### 5.3 `internal/store/store.go` (the data layer)
+### 5.3 `internal/store/` (the data layer)
 
-This is the most important file. It owns the `*sql.DB` and **all** SQL.
+**`store.go`** — owns the `*sql.DB` connection and all existing SQL (videos, likes, comments, users, sessions). **`chat.go`** — owns chat SQL (conversations, messages, participants).
 
-**Connection:** `sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")` + `SetMaxOpenConns(1)`.
-
-**Schema (auto‑created by `migrate()`):**
-
-```sql
-videos(
-  id INTEGER PK AUTOINCREMENT,
-  title TEXT NOT NULL DEFAULT '',
-  filename TEXT NOT NULL,          -- on-disk filename, e.g. 1718000000000000000-a1b2c3.mp4
-  filepath TEXT NOT NULL,          -- absolute path on disk (never sent to clients)
-  mime_type TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  likes_count INTEGER NOT NULL DEFAULT 0,     -- denormalized cache
-  comments_count INTEGER NOT NULL DEFAULT 0,  -- denormalized cache
-  views INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL                  -- unix timestamp (seconds)
-);
-
-likes(
-  id INTEGER PK AUTOINCREMENT,
-  user_id INTEGER NOT NULL,         -- FK→users.id (the logged-in user)
-  video_id INTEGER NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(user_id, video_id)         -- one like per user per video
-);
-
-comments(
-  id INTEGER PK AUTOINCREMENT,
-  user_id INTEGER NOT NULL,         -- FK→users.id
-  video_id INTEGER NOT NULL,
-  text TEXT NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT 0
-);
-
--- Indexes
-idx_likes_video        ON likes(video_id)
-idx_comments_video     ON comments(video_id, id DESC)
-idx_videos_created     ON videos(created_at DESC)
+**Connection:** `sql.Open("pgx", databaseURL)` with connection pool tuning:
+```go
+db.SetMaxOpenConns(25)
+db.SetMaxIdleConns(10)
+db.SetConnMaxLifetime(5 * time.Minute)
+db.SetConnMaxIdleTime(1 * time.Minute)
 ```
 
+**Migrations** — managed by **golang‑migrate** with embedded SQL files:
+- `000001_init.up.sql` — `videos`, `likes`, `comments`, `users`, `sessions` in PostgreSQL syntax (`BIGSERIAL`, `$N` placeholders).
+- `000002_chat.up.sql` — `conversations`, `conversation_participants`, `messages`.
+- Migrations run automatically on startup via `iofs.New(migrationFS, "migrations")` + `postgres.WithInstance(db)`.
+
+**Context propagation** — every store method takes `ctx context.Context` as its first parameter and uses `QueryContext` / `ExecContext` / `BeginTx(ctx, nil)` / `QueryRowContext`.
+
 **Key design choices:**
+- **`created_at` stored as unix integer** (`BIGINT`), converted to `time.Time` on read.
+- **Denormalized counters** (`likes_count`, `comments_count`) recomputed inside the same transaction.
+- **`$N` placeholders** (PostgreSQL numbered parameters) instead of `?` (SQLite).
+- **`RETURNING id`** instead of `LastInsertId()` (PostgreSQL doesn't support `LastInsertId()`).
+- **Unique‑constraint detection** via `pgconn.PgError` error code `23505` (`pgerrcode.UniqueViolation`).
+- **Keyset (cursor) pagination** by `id` — stable and fast as the dataset grows.
 
-- **`created_at` is stored as a unix integer**, then converted to `time.Time` on read (`time.Unix(created, 0)`). Keeps storage compact and timezone‑free.
-- **Denormalized counters** (`likes_count`, `comments_count`) are recomputed inside the same transaction that mutates `likes`/`comments`, so they're always consistent.
-- **Migrations are lightweight and idempotent**: `CREATE TABLE IF NOT EXISTS` + an `addColumnIfMissing()` helper + guarded table rebuilds. This is how `comments_count` was backfilled, and how the `cid`→`user_id` switch rebuilt the `likes`/`comments` tables in place (dropping orphaned anonymous data and resetting video counts).
-
-**Notable store methods:**
+**Notable store methods (existing):**
 
 | Method | What it does |
 |--------|--------------|
-| `CreateVideo(*Video) (id, err)` | Inserts a video row. |
-| `ListVideos(userID, afterID, limit)` | Keyset pagination (`id < afterID`), newest first, with a correlated `EXISTS()` subquery to compute `liked` **for the requesting user** in one query. `userID=0` means anonymous (liked is always false). Clamps `limit` to 1–50 (default 20). |
-| `GetVideo(userID, id)` | Single video + user's like state. Used as an existence check by `ToggleLike` and `CreateComment`. |
-| `ToggleLike(userID, videoID)` | **Transaction**: `INSERT ... ON CONFLICT(user_id, video_id) DO NOTHING`; if no row was affected (already liked) it `DELETE`s; then recomputes `likes_count`. Returns `(liked bool, count int64)`. |
-| `CreateComment(userID, author, videoID, text)` | **Transaction**: insert comment, recompute `comments_count`, return the built `Comment` (with `Author` = the user's display name) + new count. |
-| `ListComments(videoID, afterID, limit)` | Keyset pagination, newest first. Author name resolved via LEFT JOIN on `users`. |
-| `IncrementViews(id)` | `UPDATE videos SET views = views + 1`. Fire‑and‑forget (no error returned). |
+| `CreateVideo(ctx, *Video)` | Inserts a video row, returns ID via `RETURNING id`. |
+| `ListVideos(ctx, userID, afterID, limit)` | Keyset pagination with correlated `EXISTS()` for per‑user like state. |
+| `ToggleLike(ctx, userID, videoID)` | Transaction: `INSERT ... ON CONFLICT DO NOTHING`, toggle, recompute count. |
+| `CreateComment(ctx, userID, author, videoID, text)` | Transaction: insert comment, recompute `comments_count`. Now returns `UserID` + `AvatarURL`. |
+| `ListComments(ctx, videoID, afterID, limit)` | LEFT JOIN on users for author name + avatar. |
+| `CreateOrUpdateUser(ctx, provider, …)` | Upsert via `ON CONFLICT(provider, provider_user_id) DO UPDATE SET`. |
+| `CreateSession(ctx, userID, token, ttl)` | Insert session row. |
+| `GetUserBySession(ctx, token)` | JOIN sessions → users, checks expiry. |
 
-> **Why one `EXISTS` subquery instead of a JOIN?** It avoids row multiplication and lets the feed query stay simple while still returning per‑viewer like state.
+**Notable store methods (chat — `chat.go`):**
 
-### 5.4 `internal/middleware/auth.go`
+| Method | What it does |
+|--------|--------------|
+| `GetOrCreateDMConversation(ctx, userA, userB)` | Finds existing DM between two users, or creates one in a transaction. |
+| `CreateGroupConversation(ctx, title, userIDs)` | Creates a group conversation with N participants. |
+| `ListConversations(ctx, userID, afterID, limit)` | Complex LATERAL JOIN: last message preview + unread count + other user info. |
+| `CreateMessage(ctx, convID, senderID, text)` | Inserts message, returns it + participant IDs for broadcasting. |
+| `ListMessages(ctx, convID, beforeID, limit)` | Paginated message history with sender name/avatar via JOIN. |
+| `MarkRead(ctx, convID, userID, msgID)` | Advances `last_read_msg_id` via `GREATEST()` (never regresses). |
+| `IsParticipant(ctx, convID, userID)` | Authorization check for conversation access. |
+| `GetParticipants(ctx, convID)` | Returns all participant user IDs (for WebSocket broadcasting). |
 
-**`Auth(st)`** — runs on *every* request: reads the `session` cookie, looks up the user via `store.GetUserBySession(token)`, and stashes the `*models.User` in `gin.Context` (nil when anonymous or expired). Never blocks a request.
+### 5.4 `internal/chat/` (the real‑time layer)
 
-**`RequireAuth()`** — applied *only* to the like and comment‑create routes. Aborts with **401** when no user is in the context. The frontend treats 401 as "redirect to `/login?next=<url>`".
+**`hub.go`** — Per‑instance WebSocket connection manager.
 
-**`UserFromContext(c)`** — typed accessor returning `*models.User` (or nil).
+- `Hub` struct holds a `sync.RWMutex`‑protected map: `clients map[int64]map[*Client]struct{}` (userID → set of connections, supporting multi‑tab).
+- `Run(ctx)` — event loop on `select { register / unregister / ctx.Done() }`.
+- `Register(c)` / `Unregister(c)` — channel‑based registration (only the hub goroutine touches the map; the mutex protects reads from the heartbeat goroutine).
+- On first connection for a user: `broker.Subscribe(ctx, userID, onMsg)` + `broker.SetPresence(ctx, userID, true)`.
+- On last disconnection: `broker.Unsubscribe(ctx, userID)` + `broker.SetPresence(ctx, userID, false)`.
+- `HandleMessage(ctx, userID, env)` — persists via store, publishes to all participants' Redis channels (including the sender for multi‑tab echo).
+- `HandleRead(ctx, userID, env)` — marks read + publishes read receipts to other participants.
+- `StartPresenceHeartbeat(ctx)` — uses `time.NewTimer` (not `time.After`) to refresh presence TTL every 30s.
+- `closeAll()` — called on shutdown, closes all client send channels.
+- Implements `StoreInterface` (subset of store methods) for testability.
+- `Broker` interface: `Publish`, `Subscribe`, `Unsubscribe`, `SetPresence`, `IsOnline` — compile‑time check: `var _ Broker = (*RedisBroker)(nil)`.
 
-> Browsing is anonymous; only liking/commenting require a session. The `session` cookie is an opaque random token (32 bytes, hex). The legacy anonymous `cid` cookie has been removed entirely.
+**`broker.go`** — Redis Pub/Sub implementation of `Broker`.
 
-### 5.5 `internal/handlers/`
+- **Per‑user channel**: `chat:user:<userID>` — each instance subscribes on first local connection for that user, unsubscribes on last.
+- **Subscribe goroutine**: reads from `sub.Channel()` and calls the `onMsg` callback → `hub.deliverLocal`.
+- **Presence**: `SET presence:<userID> 1 EX 120` on connect; `DEL` on disconnect; `EXISTS` to check.
+- Tracks subscriptions in a `sync.Mutex`‑protected map so duplicate subscribes are no‑ops.
 
-**`handlers.go`** — `Handlers` struct holds `*config.Config` + `*store.Store`; `New(cfg, st)` is the constructor. Every handler is a method on `*Handlers`, so they all share these dependencies.
+**`ws.go`** — WebSocket handler with coder/websocket.
 
-Each file maps to a feature:
+- `ServeWS(hub, lg, w, r, userID)` — accepts the WS upgrade, creates a `Client`, registers with the hub.
+- **Read pump** (main goroutine): reads JSON `Envelope`s, dispatches to `hub.HandleMessage` or `hub.HandleRead` with a 5s timeout per message.
+- **Write pump** (separate goroutine): reads from `client.Send()` channel, writes to the WS with a 10s write deadline.
+- Limits: `readLimit = 4 KiB` per message, `readTimeout = 60s`, `writeTimeout = 10s`.
+- On exit: `hub.Unregister(client)` → close WS.
 
-- **`feed.go`** — `FeedPage` renders `feed.html`; `ListVideos` handles `GET /api/videos?cursor=&limit=`, reads `userID` from context (0 = anonymous), calls `store.ListVideos`, returns `{videos, next}`.
-- **`upload.go`** — defines `allowedVideo` (MIME → extension) and `extToMime` (reverse) maps for **mp4/webm/mov/mkv**. `UploadPage` renders the form; `Upload` validates MIME (falls back to extension), enforces size cap, derives a title from the filename if none given, builds a unique name `<unixnano>-<randID(6)><ext>`, saves via `c.SaveUploadedFile`, inserts the DB row, and **deletes the file on disk if the DB insert fails** (cleanup). Returns `{id, filename, title}`.
-- **`video.go`** — `ServeFile` (`GET /uploads/:filename`) calls `filepath.Base()` (path‑traversal defense) then `c.File()`, which uses `http.ServeFile` and therefore **honors HTTP `Range` requests** — this is what lets the browser seek/scrub videos.
-- **`like.go`** — `ToggleLike` parses id, verifies the video exists (`GetVideo`), toggles, returns `{liked, count}`. `View` bumps the view counter (the client fires this once per video when it first scrolls into view).
-- **`comment.go`** — `maxCommentLen = 500` (truncated by **rune** count, Unicode‑safe). `ListComments` returns `{comments, next}`; `CreateComment` validates non‑empty, truncates, returns `{comment, count}`.
-- **`helpers.go`** — `randID(n)` returns `2n` hex chars from `crypto/rand`. Used only for upload filenames.
+### 5.5 `internal/middleware/auth.go`
 
-**Error‑handling convention:** handlers return small JSON errors like `gin.H{"error": "..."}` with an appropriate status code (400 / 404 / 413 / 500). The frontend reads `data.error`.
+**`Auth(st)`** — runs on *every* request: reads the `session` cookie, looks up the user via `store.GetUserBySession(ctx, token)`, stashes `*models.User` in `gin.Context`. Never blocks.
+
+**`RequireAuth()`** — applied to like, comment‑create, upload, profile‑edit, and all chat routes. Returns **401** when no user.
+
+### 5.6 `internal/handlers/`
+
+**`handlers.go`** — `Handlers` struct holds `*config.Config`, `*store.Store`, `*chat.Hub`, `*zap.Logger`.
+
+- **`feed.go`** — `FeedPage` + `ListVideos` (infinite scroll API).
+- **`upload.go`** — `UploadPage` + `Upload` (multipart validation/storage).
+- **`video.go`** — `ServeFile` (Range‑aware streaming).
+- **`like.go`** — `ToggleLike` + `View`.
+- **`comment.go`** — `ListComments` + `CreateComment`. Comments now return `user_id` + `avatar_url` so the frontend can render clickable profile links.
+- **`auth.go`** — Login/Logout/Register/Me + session management.
+- **`profile.go`** — `ProfilePage` (now passes `IsLoggedIn` flag for the Message button) + `EditProfile` + `ListVideosByUser` + `ListLikedVideos`.
+- **`chat.go`** — Full chat REST API + WebSocket upgrade handler:
+  - `ChatPage` — renders the chat UI.
+  - `ListConversations` — paginated conversation list with unread counts + presence.
+  - `CreateConversation` — creates DM or group conversation.
+  - `ListMessages` — paginated message history.
+  - `SendMessage` — REST fallback (primary path is WebSocket).
+  - `MarkConversationRead` — advances the read cursor.
+  - `GetPresence` — checks online status via Redis.
+  - `HandleWebSocket` — upgrades to WS (behind `RequireAuth`).
 
 ---
 
@@ -225,67 +304,96 @@ Each file maps to a feature:
 | GET  | `/` | (inline) | – | Redirects to `/feed`. |
 | GET  | `/feed` | `FeedPage` | – | Feed HTML shell. |
 | GET  | `/upload` | `UploadPage` | – | Upload form HTML. |
+| GET  | `/chat` | `ChatPage` | – | Chat UI HTML. |
+| GET  | `/u/:id` | `ProfilePage` | – | User profile HTML. |
 | GET  | `/uploads/:filename` | `ServeFile` | – | Streams a video (Range‑aware). |
 | GET  | `/static/*` | gin.Static | – | CSS/JS assets. |
-| GET  | `/login` | `LoginPage` | – | SSO login page (Google/Facebook buttons + demo login). |
+| GET  | `/login` | `LoginPage` | – | Login page. |
 | POST | `/logout` | `Logout` | – | Ends session → redirect `/feed`. |
-| POST | `/auth/demo` | `LoginDemo` | – | Stand‑in login for testing; creates a `demo` user + session. |
-| POST | `/auth/google` | `LoginGoogle` | – | **501 placeholder** — wire up OAuth here. |
-| POST | `/auth/facebook` | `LoginFacebook` | – | **501 placeholder** — wire up OAuth here. |
+| POST | `/auth/demo` | `LoginDemo` | – | Demo login (creates user + session). |
+| POST | `/auth/login` | `Login` | – | Email/password login. |
+| POST | `/auth/register` | `Register` | – | Email/password registration. |
+| POST | `/auth/google` | `LoginGoogle` | – | **501 placeholder**. |
+| POST | `/auth/facebook` | `LoginFacebook` | – | **501 placeholder**. |
+| **GET** | **`/ws`** | **`HandleWebSocket`** | **🔒 login** | **WebSocket upgrade for real‑time chat.** |
 | GET  | `/api/videos` | `ListVideos` | – | Page of videos (`cursor`, `limit`). |
-| GET  | `/api/me` | `Me` | – | Current user or `null` (lets the client adapt UI). |
+| GET  | `/api/users/:id/videos` | `ListVideosByUser` | – | User's videos. |
+| GET  | `/api/users/:id/liked` | `ListLikedVideos` | – | User's liked videos. |
+| GET  | `/api/users/:id/presence` | `GetPresence` | – | Online status (`{online: bool}`). |
+| GET  | `/api/me` | `Me` | – | Current user or `null`. |
 | POST | `/api/videos/:id/view` | `View` | – | Increment views. |
-| POST | `/api/videos/:id/like` | `ToggleLike` | **🔒 login** | Toggle like → `{liked, count}`. Returns 401 if anonymous. |
-| GET  | `/api/videos/:id/comments` | `ListComments` | – | Page of comments (`cursor`, `limit`). |
-| POST | `/api/videos/:id/comments` | `CreateComment` | **🔒 login** | Add comment (form `text`) → `{comment, count}`. Returns 401 if anonymous. |
-| POST | `/api/upload` | `Upload` | – | Multipart upload (`file`, `title`) → `{id, filename, title}`. |
+| POST | `/api/videos/:id/like` | `ToggleLike` | **🔒 login** | Toggle like → `{liked, count}`. |
+| GET  | `/api/videos/:id/comments` | `ListComments` | – | Page of comments (now includes `user_id`, `avatar_url`). |
+| POST | `/api/videos/:id/comments` | `CreateComment` | **🔒 login** | Add comment → `{comment, count}`. |
+| POST | `/api/upload` | `Upload` | **🔒 login** | Multipart upload. |
+| POST | `/api/profile` | `EditProfile` | **🔒 login** | Update name/bio/avatar. |
+| **GET** | **`/api/conversations`** | **`ListConversations`** | **🔒 login** | **Conversation list (unread counts, presence, last message).** |
+| **POST** | **`/api/conversations`** | **`CreateConversation`** | **🔒 login** | **Create DM (`{user_id}`) or group (`{user_ids, title}`).** |
+| **GET** | **`/api/conversations/:id/messages`** | **`ListMessages`** | **🔒 login** | **Message history (paginated).** |
+| **POST** | **`/api/conversations/:id/messages`** | **`SendMessage`** | **🔒 login** | **Send message (REST fallback for WS).** |
+| **POST** | **`/api/conversations/:id/read`** | **`MarkConversationRead`** | **🔒 login** | **Mark conversation as read.** |
 
-**Auth model:** the `Auth` middleware loads the logged‑in user (if any) from the
-`session` cookie into the context on every request. `RequireAuth()` is applied
-*only* to the like and comment‑create routes — they return **401** when there's
-no session. The frontend treats 401 as "redirect to `/login?next=<current‑url>`"
-(via the `requireLogin()` helper in `feed.js`); after a successful login it
-returns to `next`.
+### WebSocket Protocol (JSON over `/ws`)
 
-**Pagination contract (videos & comments):** request `cursor=<id of last item>&limit=<1..50>`; response includes `next` = the last item's id (or `0` if none). Stop paging when a page returns fewer than `limit` items or `next` is `0`.
+**Client → Server:**
+```json
+{"type":"message","conversation_id":123,"text":"hello"}
+{"type":"read","conversation_id":123,"message_id":456}
+```
+
+**Server → Client:**
+```json
+{"type":"message","id":789,"conversation_id":123,"sender_id":1,"sender_name":"Alice","sender_avatar":"/uploads/a.jpg","text":"hello","created_at":1719500000}
+{"type":"read_receipt","conversation_id":123,"user_id":2,"message_id":789}
+```
+
+**Pagination contract:** request `cursor=<id>&limit=<1..50>` (videos/comments) or `before=<id>&limit=<1..100>` (messages); response includes `next` = the last item's id (or `0`).
 
 ---
 
 ## 7. Frontend Deep Dive
 
-No build step. Just static files served by Gin.
+No build step. Static files served by Gin.
 
 ### 7.1 Templates (`web/templates/`)
 
-- **`layout.html`** — defines `{{define "header"}}` (doctype, nav with GoTok brand + Feed/Upload links) and `{{define "footer"}}`. Other templates `{{template "header" .}}` ... `{{template "footer" .}}` to compose a full page.
-- **`feed.html`** — `<div id="feed">` + `<div id="loader">`, then loads `/static/js/feed.js`. The feed is **entirely client‑rendered** from the API.
-- **`upload.html`** — dropzone `<label>`, title input, submit button; loads `/static/js/upload.js`.
+- **`layout.html`** — header/footer partials + sidebar nav (Feed, Upload, Chat, user profile link, logout).
+- **`feed.html`** — feed shell; loads `feed.js`.
+- **`upload.html`** — upload form; loads `upload.js`.
+- **`profile.html`** — profile page with avatar, bio, video/liked tabs, edit modal, and **Message button** (shown to logged‑in non‑owners); loads `profile.js`.
+- **`chat.html`** — two‑panel chat layout (conversation list + message thread); loads `chat.js`.
+- **`login.html`** — login page; loads `login.js`.
 
-### 7.2 `web/static/js/feed.js` (the big one)
+### 7.2 `web/static/js/feed.js`
 
-Implements the whole feed UX. Key pieces:
+Feed UX + comment modal. Key changes:
+- **`renderComment(c)`** — comment avatars and author names are now **clickable links** to `/u/:user_id` (matching the feed's `authorRow()` pattern). Real avatar images are shown when `avatar_url` is available; otherwise a letter‑badge fallback.
+- Comments API now returns `user_id` and `avatar_url` per comment.
 
-- **`IntersectionObserver`** (thresholds `[0, 0.6, 1]`): when a card is ≥60% visible it **plays** that video and **pauses** all others; the first time a video becomes visible it fires a one‑shot `POST /api/videos/:id/view` (tracked via a `seen` Set to avoid double counting).
-- **`loadPage()`** — infinite scroll. Triggered by `feed` scroll near the bottom (≤600px) as well as on load. Fetches `/api/videos?limit=20&cursor=...`, appends cards, sets `done` when a page returns <20 items.
-- **`renderCard(v)`** — builds the `<section class="video-card">` with `<video muted loop playsinline>`, like/comment action buttons, title/meta overlay, and a "tap: sound · double‑tap: ❤" hint. Wires up events.
-- **Gestures on the `<video>`:** single click → **mute toggle** (250 ms timer); a second click within 250 ms → **double‑tap like**. This is the TikTok interaction.
-- **`toggleLike(card, id)`** — the heart‑button click handler. Optimistic `pop` animation, then `POST /like` and reconcile `liked` class + count.
-- **`likeVideo(card, id, e)`** — double‑tap handler. **Always likes** (never unlikes), plays a floating heart animation (`showFloatingHeart`) at the tap coordinates, and reconciles with the server.
-- **Comments modal** — a lazily‑created (`ensureModal()`) bottom sheet. `openComments(card, id)` resets state and loads page 1; `loadComments(append)` paginates on scroll; `submitComment` posts and **prepends** the new comment to the top, then updates the card's comment badge and the sheet title.
-- **Helpers:** `timeAgo`, `formatCount` (K/M abbreviation), `formatDate`, `escapeHtml` (used everywhere user content is injected — **XSS defense is manual**, via this function).
+### 7.3 `web/static/js/profile.js`
 
-### 7.3 `web/static/js/upload.js`
+- Tabbed video grid (Videos / Liked) with infinite scroll.
+- Edit profile modal (name, bio, avatar upload).
+- **Message button** (`#messageBtn`) — visible to logged‑in non‑owners. On click: `POST /api/conversations {user_id: N}` → redirect to `/chat?c=<conversation_id>`.
 
-Drag‑and‑drop wiring + form submit. Posts `FormData` (file + title) to `/api/upload`, shows status (error/ok), and redirects to `/feed` on success.
+### 7.4 `web/static/js/chat.js` (new ~250 lines)
 
-### 7.4 `web/static/css/style.css`
+Full WebSocket chat client:
+- **Auto‑reconnecting WebSocket** — connects to `/ws`, reconnects after 3s on close.
+- **Conversation list** — loads via `GET /api/conversations`, renders avatar/name/last‑message/unread‑badge/online‑dot, infinite scroll.
+- **Message thread** — loads history via `GET /api/conversations/:id/messages`, renders left/right aligned bubbles (self vs others), infinite scroll for older messages.
+- **Send** — primary path via WebSocket; REST fallback if WS is down.
+- **Read receipts** — marks conversation read on open and on new message; displays "Seen" when a read receipt arrives.
+- **Presence** — updates online dot/status from WS `presence` events and initial conversation list.
+- **URL param `?c=<id>`** — opens a specific conversation directly (used by the profile Message button).
+- **Mobile responsive** — single‑panel with back button; `.chat-app.thread-open` toggles list/thread.
+
+### 7.5 `web/static/css/style.css`
 
 - Black, full‑screen, mobile‑first.
-- `.feed` uses **`scroll-snap-type: y mandatory`** + `scroll-snap-align: start` per `.video-card` → the signature one‑video‑per‑screen snapping.
-- `100dvh` (dynamic viewport height) is used alongside `100vh` for mobile browser chrome handling.
-- The double‑tap heart is a CSS `@keyframes tapHeart` (scale up + float up + fade).
-- The comment sheet slides up via `@keyframes sheetUp`.
-- Accent color throughout is `#ff3b5c` (the TikTok‑ish red/pink).
+- `[hidden] { display: none !important; }` — ensures the HTML `hidden` attribute works even on elements with `display: flex`.
+- Chat styles: conversation list, message bubbles, online dots, unread badges, message input bar, responsive two‑panel → single‑panel on mobile.
+- Accent color: `#ff3b5c`.
 
 ---
 
@@ -299,74 +407,94 @@ User picks file → upload.js POST /api/upload (multipart)
       2. title = form title OR filename stem
       3. stored name = "<unixnano>-<randID><ext>"
       4. c.SaveUploadedFile → data/uploads/<stored>
-      5. store.CreateVideo → INSERT row
+      5. store.CreateVideo(ctx, *Video) → INSERT ... RETURNING id
       6. on DB error → os.Remove(file) (cleanup)
   → returns {id, filename, title}
 upload.js → redirect to /feed
 ```
 
-### Viewing the feed
+### Sending a chat message
 ```
-GET /feed → feed.html (shell)
-  feed.js loadPage() → GET /api/videos?cursor=0&limit=20
-    → store.ListVideos(userID, 0, 20)
-        SQL: SELECT ... FROM videos ORDER BY id DESC LIMIT 20
-             + EXISTS(likes for this user_id) AS liked
-  renderCard() for each → <video src="/uploads/<filename>">
-IntersectionObserver → plays visible video → POST /api/videos/:id/view (once)
+User types in chat.js → wsSend({type:"message", conversation_id, text})
+  → chat/ws.go ServeWS read pump:
+      hub.HandleMessage(ctx, senderID, env)
+        1. store.IsParticipant → verify access
+        2. store.CreateMessage → INSERT ... RETURNING id (PostgreSQL)
+        3. broker.Publish(participantID, payload) for each participant → Redis pub/sub
+  → This instance's Redis subscriber: hub.deliverLocal(senderID, payload) → sender's WS (echo for multi‑tab)
+  → Other instance's Redis subscriber: hub.deliverLocal(recipientID, payload) → recipient's WS
+  → chat.js handleWSMessage: receiveMessage(data) → render bubble
 ```
 
-### Liking (double‑tap)
+### Starting a conversation from a profile
 ```
-double‑tap on video → likeVideo(card, id, e)
-  → show floating heart at (x,y) (optimistic)
-  → heart.classList.add('liked') (optimistic)
-  → POST /api/videos/:id/like
-      → store.ToggleLike(userID, id)  [TX]
-          INSERT INTO likes ... ON CONFLICT DO NOTHING
-          recompute likes_count
-      → returns {liked, count}
-  → update count, reconcile heart class
+Profile page → click "💬 Message"
+  → profile.js: POST /api/conversations {user_id: N}
+      → handlers.CreateConversation:
+          store.GetOrCreateDMConversation(ctx, currentUserID, targetUserID)
+      → returns {conversation: {id: 42}}
+  → redirect to /chat?c=42
+  → chat.js init: loadConversations → openConversation({id:42})
 ```
-> Subtlety: the **heart button** calls `toggleLike` (on/off toggle), while the **double‑tap** calls `likeVideo` (only ever likes, with an early‑return `if (isLiked(card)) return;` after replaying the animation). This mirrors TikTok, where a double‑tap always likes but tapping the button can unlike.
 
 ---
 
 ## 9. Key Design Decisions & Conventions
 
-1. **User‑keyed interactions.** Browsing (feed, comments, uploads) is anonymous. Liking and commenting are gated behind `RequireAuth()` and keyed on `users.id` — a like belongs to a logged‑in user, not an anonymous cookie. Two users sharing a browser get independent like states. Comment author names come from the `users` table via a LEFT JOIN (no more `guest_xxx` placeholders). The legacy `cid` cookie and its middleware were removed entirely.
-2. **SQLite with a single writer connection** (`SetMaxOpenConns(1)`) + WAL — avoids "database is locked" under the (mild) concurrency a single‑box app sees.
-3. **Denormalized counts** kept consistent via transactions — reads are cheap (the hot feed path reads the cached column instead of `COUNT(*)`).
-4. **Keyset (cursor) pagination** by `id` instead of `OFFSET` — stable and fast as the dataset grows.
-5. **Server‑rendered shells, client‑rendered data.** Pages are thin HTML; all dynamic content comes from JSON APIs. This keeps Go templates simple and the UX snappy.
-6. **`filepath.Base()` on the served filename** — prevents path traversal (`GET /uploads/../../etc/passwd`).
-7. **`json:"-"` on `FilePath`** — the on‑disk path never leaks to clients.
-8. **Manual `escapeHtml`** on the frontend for any user‑supplied text (titles, comments) — there is no templating/auto‑escaping in vanilla JS.
-9. **Range‑aware video serving** via `http.ServeFile` so seeking works without a custom streaming endpoint.
-10. **Idempotent, additive migrations** (`IF NOT EXISTS` + `addColumnIfMissing` + guarded table rebuilds) instead of a migration framework — appropriate at this scale. The `cid`→`user_id` switch uses a guarded rebuild (`migrateLikesComments`): it detects the legacy `client_id` column and rebuilds `likes`/`comments` in place, dropping orphaned anonymous data and resetting video counts.
-11. DO NOT add unnecessary comment
+1. **PostgreSQL replaces SQLite.** The single‑writer limitation (`SetMaxOpenConns(1)`) is incompatible with horizontal scaling. PostgreSQL's MVCC allows concurrent writers across instances. Connection pool tuned to 25 open / 10 idle.
+2. **Redis pub/sub for cross‑instance WebSocket delivery.** Each instance subscribes to `chat:user:<userID>` channels for its locally connected users. Messages are published to each recipient's channel. This avoids flooding all instances with every message.
+3. **Redis presence keys with TTL.** `SET presence:<id> EX 120` on connect, refreshed every 30s by the hub heartbeat (using `time.NewTimer`, not `time.After`). Automatic expiry handles crashed instances.
+4. **Context propagation everywhere.** All store methods take `ctx context.Context` as the first parameter and use `*Context` SQL variants. This enables request cancellation, timeouts, and graceful shutdown.
+5. **golang‑migrate for schema management.** Replaces hand‑rolled `addColumnIfMissing` / `pragma_table_info`. Versioned `.up.sql` / `.down.sql` files embedded via `//go:embed`, run automatically on startup.
+6. **Graceful shutdown.** `signal.NotifyContext` in `main.go` → `http.Server.Shutdown()` + hub `closeAll()` + Redis client close. Goroutines respect `ctx.Done()`.
+7. **Denormalized counts** kept consistent via transactions.
+8. **Server‑rendered shells, client‑rendered data.**
+9. **`filepath.Base()` on served filenames** — prevents path traversal.
+10. **Manual `escapeHtml`** on the frontend for all user‑supplied text.
+11. DO NOT add unnecessary comments.
 
 ---
 
 ## 10. Running & Developing
 
-Uses the **Makefile**. From the project root:
+### With Docker Compose (recommended — includes PostgreSQL + Redis + 2 instances)
 
 ```bash
-make run      # go run .        → http://localhost:8080
-make build    # → ./gotok
-make serve    # build then run ./gotok
-make vet      # go vet ./...
-make fmt      # gofmt -s -w .
-make tidy     # go mod tidy
-make test     # go test ./...   (note: there are currently no _test.go files)
-make clean    # rm -f gotok
-make reset    # rm -f gotok && rm -rf data   ← wipes DB + uploads!
+cp example.env .env   # adjust DATABASE_URL / REDIS_ADDR if needed
+make up               # docker compose up --build
+                      # → gotok-1 on :8080, gotok-2 on :8081
+                      # → PostgreSQL on :5432, Redis on :6379
+make down             # stop all services
 ```
 
-Requirements: **Go 1.25.6** (per `go.mod`). The SQLite driver is pure Go, so **no CGO/toolchain** is needed — a plain `go build` produces `./gotok`.
+### Local development (requires running PostgreSQL + Redis)
 
-First run auto‑creates `data/`, `data/uploads/`, `data/app.db`, and `data/cookie_secret`.
+```bash
+make run        # go run ./cmd/gotok → http://localhost:8080
+make build      # → ./gotok
+make vet        # go vet ./...
+make fmt        # gofmt -s -w .
+make tidy       # go mod tidy
+make test       # go test ./...
+make test-race  # go test -race ./...
+make clean      # rm -f gotok
+make reset      # rm -f gotok && rm -rf data
+```
+
+**Environment variables** (see `example.env`):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GOTOK_DATABASE_URL` | `postgres://gotok:gotok@localhost:5432/gotok?sslmode=disable` | PostgreSQL DSN. |
+| `GOTOK_REDIS_ADDR` | `localhost:6379` | Redis for pub/sub + presence. |
+| `GOTOK_LISTEN_ADDR` | `:8080` | HTTP listen address. |
+| `GOTOK_DATA_DIR` | `data` | Data directory (uploads, cookie secret). |
+| `GOTOK_MAX_UPLOAD_MB` | `200` | Max upload size. |
+| `GOTOK_DEV` | `false` | Enables Swagger UI at `/swagger/index.html`. |
+
+### Horizontal scaling test
+
+`docker-compose.yml` runs **two GoTok instances** (`:8080` and `:8081`) sharing one PostgreSQL + one Redis. Open a browser tab on `:8080` and another on `:8081`, log in as different users, and send messages — they route cross‑instance via Redis pub/sub.
 
 ---
 
@@ -374,33 +502,34 @@ First run auto‑creates `data/`, `data/uploads/`, `data/app.db`, and `data/cook
 
 | You want to… | Touch this |
 |--------------|------------|
-| Add a new API endpoint | `internal/app/app.go` (register route) + new method in `internal/handlers/<feature>.go` + store method in `internal/store/store.go`. |
-| Change the upload size limit / port | `internal/config/config.go` (`MaxUploadMB`, `ListenAddr`). |
+| Add a new API endpoint | `internal/app/app.go` (register route) + new method in `internal/handlers/<feature>.go` + store method in `internal/store/store.go` or `chat.go`. |
+| Add a DB migration | Create `internal/store/migrations/000NNN_<name>.up.sql` + `.down.sql`. golang‑migrate picks it up automatically. |
+| Change the upload size limit / port | `internal/config/config.go` or env vars. |
 | Add a new accepted video format | the `allowedVideo` and `extToMime` maps in `internal/handlers/upload.go`. |
-| Add a DB column / table | the `schema` string in `store.go` `migrate()` (+ `addColumnIfMissing` for backfill). |
-| Change the feed page size | the `20` in `feed.js` (`loadPage`) and the default in `store.ListVideos` / `handlers.ListVideos`. |
+| Change the feed page size | the `20` in `feed.js` (`loadPage`) and the default in store/handlers. |
 | Change look & feel | `web/static/css/style.css`. |
-| Change feed interactions (gestures) | `web/static/js/feed.js`. |
-| Add a per‑user page (e.g. "liked videos") | new handler in `handlers/profile.go` + a `store.go` query reusing the `listVideosPage` keyset shape, registered in `main.go`. |
-| Implement Google/Facebook SSO | `handlers/LoginGoogle`/`LoginFacebook` (currently return 501) — add OAuth redirect → callback → `store.CreateOrUpdateUser`. |
-| Sign the session cookie | use `cfg.CookieSecret` (already loaded) with Gin's secure cookie mechanism. |
+| Add a chat event type | Extend `Envelope` in `internal/chat/hub.go` + handle in `chat/ws.go` read pump + `chat.js` `handleWSMessage`. |
+| Add WebSocket middleware | `internal/app/app.go` route registration for `/ws`. |
+| Implement Google/Facebook SSO | `handlers/LoginGoogle`/`LoginFacebook` (currently return 501). |
+| Sign the session cookie | use `cfg.CookieSecret` with Gin's secure cookie mechanism. |
 
 ---
 
 ## 12. Gotchas, Limitations & Next Steps
 
-- **No tests yet** — `go test ./...` passes vacuously. Adding table‑driven tests around `store` (especially `ToggleLike`, `ListVideos` pagination) would be high‑value.
-- **SSO is stubbed.** Google/Facebook endpoints return 501 "coming soon"; only the demo login (`/auth/demo`) actually creates a session. Wire real OAuth (redirect → provider → callback → `CreateOrUpdateUser`) into `LoginGoogle`/`LoginFacebook` to enable them.
-- **`cookie_secret` is generated but not used** to sign the `session` cookie; the token is an unsigned random string, so it can be forged/spoofed by a knowledgeable client. Fine for a toy, worth tightening for production.
-- **Single‑process only.** SQLite + local uploads mean this won't horizontally scale as‑is. For multi‑instance you'd move uploads to object storage and either shard SQLite or move to Postgres.
-- **No content moderation on upload** — uploads now require a login, but there's no size/scan/abuse protection beyond the type allow‑list and 200 MB cap. Add a reverse proxy with rate limits before exposing publicly.
-- **Legacy videos have no uploader.** Videos created before ownership was added keep `user_id = 0`; they show "Unknown uploader" with no profile link.
-- **View counting is client‑initiated** (`POST /view`) and deduped only in‑memory per page load (`seen` Set). Refreshing the page re‑counts. A server‑side dedupe (e.g. by user+video with a window) would be more accurate.
+- **Chat schema needs production review.** The `conversations`, `conversation_participants`, and `messages` tables were designed for this feature but may need index tuning, partitioning, or constraint adjustments for high‑volume production workloads.
+- **No tests yet** — `go test ./...` passes vacuously. High‑value targets: `store` (especially `ToggleLike`, `GetOrCreateDMConversation`, pagination), `chat/hub.go` (goroutine leak detection via `go.uber.org/goleak`), `chat/broker.go` (Redis pub/sub round‑trip).
+- **SSO is stubbed.** Google/Facebook endpoints return 501.
+- **`cookie_secret` is generated but not used** to sign the `session` cookie; the token is an unsigned random string.
+- **Uploads are local disk.** With multiple instances, each instance has its own `data/uploads/` (separate Docker volumes in `docker-compose.yml`). For production, use shared object storage (S3) so all instances see the same uploads.
+- **No content moderation on upload.**
+- **View counting is client‑initiated** and deduped only in‑memory per page load.
 - **Comments have no edit/delete, no threading, no replies.**
-- **`time` stored as unix seconds** loses sub‑second precision (fine here; upload filenames use `UnixNano` so they're still unique).
+- **`time` stored as unix seconds** loses sub‑second precision.
+- **WebSocket origin check is disabled** (`InsecureSkipVerify: true`) — the session cookie is the auth mechanism. Tighten for production if needed.
 
 ---
 
 ### TL;DR
 
-GoTok = **Gin + SQLite + vanilla JS** in one Go binary. Session‑based login (SSO stubbed, demo login live), local‑disk uploads, a keyset‑paginated JSON feed rendered client‑side into a scroll‑snapping vertical player, with transactional user‑keyed like/comment counters. Start in `cmd/gotok/main.go` to see the wiring, `internal/app/app.go` for routes, drop into `internal/store/store.go` for all data logic, and `web/static/js/feed.js` for all the UX.
+GoTok = **Gin + PostgreSQL + Redis + WebSocket** for a TikTok‑style video app with real‑time chat. Session‑based login (SSO stubbed, demo + email/password live), local‑disk uploads, keyset‑paginated JSON feed, scroll‑snapping vertical player, transactional like/comment counters, 1‑on‑1 + group chat with read receipts and presence, horizontally scalable via Redis pub/sub. Graceful shutdown via `signal.NotifyContext`. Schema migrations via golang‑migrate with embedded SQL. Start in `cmd/gotok/main.go` for wiring, `internal/app/app.go` for routes + startup/shutdown, `internal/store/` for all data logic, `internal/chat/` for the WebSocket hub + Redis broker, and `web/static/js/` for all UX.

@@ -14,6 +14,7 @@ import (
 const maxCommentLen = 500
 
 // ListComments godoc
+//
 //	@Summary		List comments for a video
 //	@Description	Returns a cursor-paginated page of comments for a video (newest first).
 //	@Tags			comments
@@ -37,7 +38,7 @@ func (h *Handlers) ListComments(c *gin.Context) {
 		limit = 20
 	}
 
-	comments, err := h.store.ListComments(id, cursor, limit)
+	comments, err := h.store.ListComments(c.Request.Context(), id, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load comments"})
 		return
@@ -50,6 +51,7 @@ func (h *Handlers) ListComments(c *gin.Context) {
 }
 
 // CreateComment godoc
+//
 //	@Summary		Create a comment on a video
 //	@Description	Accepts a new comment (form field "text") and returns the created comment plus the refreshed comment count.
 //	@Tags			comments
@@ -71,7 +73,7 @@ func (h *Handlers) CreateComment(c *gin.Context) {
 		return
 	}
 	u := middleware.UserFromContext(c)
-	if _, err := h.store.GetVideo(u.ID, id); err != nil {
+	if _, err := h.store.GetVideo(c.Request.Context(), u.ID, id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "video not found"})
 		return
 	}
@@ -85,7 +87,7 @@ func (h *Handlers) CreateComment(c *gin.Context) {
 		text = string([]rune(text)[:maxCommentLen])
 	}
 
-	comment, count, err := h.store.CreateComment(u.ID, u.Name, id, text)
+	comment, count, err := h.store.CreateComment(c.Request.Context(), u.ID, u.Name, id, text)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create comment"})
 		return
