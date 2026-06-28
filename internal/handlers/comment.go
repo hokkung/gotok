@@ -1,17 +1,15 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/service"
 )
-
-// maxCommentLen is the hard cap on a single comment's length.
-const maxCommentLen = 500
 
 // ListComments godoc
 //
@@ -38,14 +36,10 @@ func (h *Handlers) ListComments(c *gin.Context) {
 		limit = 20
 	}
 
-	comments, err := h.store.ListComments(c.Request.Context(), id, cursor, limit)
+	comments, next, err := h.video.ListComments(c.Request.Context(), id, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load comments"})
 		return
-	}
-	next := int64(0)
-	if len(comments) > 0 {
-		next = comments[len(comments)-1].ID
 	}
 	c.JSON(http.StatusOK, gin.H{"comments": comments, "next": next})
 }
@@ -73,23 +67,18 @@ func (h *Handlers) CreateComment(c *gin.Context) {
 		return
 	}
 	u := middleware.UserFromContext(c)
-	if _, err := h.store.GetVideo(c.Request.Context(), u.ID, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "video not found"})
-		return
-	}
+	text := c.PostForm("text")
 
-	text := strings.TrimSpace(c.PostForm("text"))
-	if text == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "comment cannot be empty"})
-		return
-	}
-	if len([]rune(text)) > maxCommentLen {
-		text = string([]rune(text)[:maxCommentLen])
-	}
-
-	comment, count, err := h.store.CreateComment(c.Request.Context(), u.ID, u.Name, id, text)
+	comment, count, err := h.video.CreateComment(c.Request.Context(), u.ID, u.Name, id, text)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create comment"})
+		switch {
+		case errors.Is(err, service.ErrEmptyComment):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "comment cannot be empty"})
+		case errors.Is(err, service.ErrVideoNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "video not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create comment"})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"comment": comment, "count": count})

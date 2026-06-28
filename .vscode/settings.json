@@ -1,0 +1,19 @@
+{
+	"[go]": {
+		"editor.formatOnSave": "explicit",
+		"editor.defaultFormatter": "golang.go",
+		"editor.codeActionsOnSave": {
+			"source.organizeImports": "explicit"
+		}
+	},
+	"gopls": {
+		"formatting.gofumpt": true,
+		"ui.diagnostic.staticcheck": true,
+		"ui.diagnostic.analyses": {
+			"unused": true,
+			"shadow": true
+		}
+	},
+	"go.lintTool": "golangci-lint",
+	"go.lintOnSave": "file"
+}

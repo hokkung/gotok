@@ -17,6 +17,7 @@ import (
 	"github.com/hokkung/gotok/internal/config"
 	"github.com/hokkung/gotok/internal/handlers"
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/service"
 	"github.com/hokkung/gotok/internal/store"
 )
 
@@ -30,7 +31,15 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, lg *zap.Logge
 	}
 
 	broker := chat.NewRedisBroker(rdb, lg)
-	hub := chat.NewHub(st, broker, chat.WithLogger(lg))
+
+	// Service layer — each service owns a bounded context and defines the store
+	// interface it consumes. The concrete *store.Store satisfies all of them.
+	videoSvc := service.NewVideoService(st)
+	authSvc := service.NewAuthService(st)
+	profileSvc := service.NewProfileService(st)
+	chatSvc := service.NewChatService(st, broker)
+
+	hub := chat.NewHub(chatSvc, broker, chat.WithLogger(lg))
 
 	go hub.Run(ctx)
 	go hub.StartPresenceHeartbeat(ctx)
@@ -43,7 +52,7 @@ func Run(ctx context.Context, cfg *config.Config, st *store.Store, lg *zap.Logge
 	r.Use(middleware.Auth(st))
 	r.LoadHTMLGlob("web/templates/*")
 
-	h := handlers.New(cfg, st, hub, lg)
+	h := handlers.New(cfg, videoSvc, authSvc, profileSvc, chatSvc, hub, lg)
 
 	registerRoutes(r, h)
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/hokkung/gotok/internal/middleware"
+	"github.com/hokkung/gotok/internal/service"
 )
 
 // allowedImage maps an accepted avatar MIME type to its file extension.
@@ -21,9 +23,6 @@ var allowedImage = map[string]string{
 	"image/png":  ".png",
 	"image/webp": ".webp",
 }
-
-// maxBioRunes caps the profile bio length (TikTok uses 80; we allow a bit more).
-const maxBioRunes = 160
 
 // maxAvatarMB is the per-upload size cap for a profile photo.
 const maxAvatarMB = 5
@@ -37,21 +36,17 @@ func (h *Handlers) ProfilePage(c *gin.Context) {
 		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	profile, err := h.store.GetUser(c.Request.Context(), id)
+	result, err := h.profile.GetProfile(c.Request.Context(), id)
 	if err != nil {
 		c.String(http.StatusNotFound, "user not found")
 		return
 	}
-	videoCount, _ := h.store.CountVideosByUser(c.Request.Context(), id)
-	likedCount, _ := h.store.CountLikedVideos(c.Request.Context(), id)
 
-	data := h.base(c, profile.Name)
-	data["Profile"] = profile
-	data["VideoCount"] = videoCount
-	data["LikedCount"] = likedCount
-	data["Initial"] = profileInitial(profile.Name)
-	// IsOwner lets the template show the "Edit profile" button only to the
-	// profile owner.
+	data := h.base(c, result.User.Name)
+	data["Profile"] = result.User
+	data["VideoCount"] = result.VideoCount
+	data["LikedCount"] = result.LikedCount
+	data["Initial"] = profileInitial(result.User.Name)
 	isOwner := false
 	isLoggedIn := false
 	if u := middleware.UserFromContext(c); u != nil {
@@ -94,14 +89,10 @@ func (h *Handlers) ListVideosByUser(c *gin.Context) {
 		limit = 24
 	}
 
-	videos, err := h.store.ListVideosByUser(c.Request.Context(), id, viewerID, cursor, limit)
+	videos, next, err := h.video.ListUserVideos(c.Request.Context(), id, viewerID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load videos"})
 		return
-	}
-	next := int64(0)
-	if len(videos) > 0 {
-		next = videos[len(videos)-1].ID
 	}
 	c.JSON(http.StatusOK, gin.H{"videos": videos, "next": next})
 }
@@ -135,7 +126,7 @@ func (h *Handlers) ListLikedVideos(c *gin.Context) {
 		limit = 24
 	}
 
-	videos, next, err := h.store.ListLikedVideos(c.Request.Context(), id, viewerID, cursor, limit)
+	videos, next, err := h.video.ListUserLikedVideos(c.Request.Context(), id, viewerID, cursor, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load liked videos"})
 		return
@@ -164,24 +155,14 @@ func (h *Handlers) EditProfile(c *gin.Context) {
 	u := middleware.UserFromContext(c)
 
 	name := strings.TrimSpace(c.PostForm("name"))
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
-		return
-	}
 	bio := strings.TrimSpace(c.PostForm("bio"))
-	if ru := []rune(bio); len(ru) > maxBioRunes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bio too long (max %d characters)", maxBioRunes)})
-		return
-	}
 
-	avatarURL := "" // empty → keep existing avatar in the store
+	avatarURL := ""
 	file, err := c.FormFile("file")
 	if err == nil {
-		// An avatar was supplied: validate type + size, store it on disk.
 		mime := file.Header.Get("Content-Type")
 		ext, ok := allowedImage[mime]
 		if !ok {
-			// Fall back to the file extension.
 			fext := strings.ToLower(filepath.Ext(file.Filename))
 			if m := extToImageMime(fext); m != "" {
 				ext = fext
@@ -203,7 +184,6 @@ func (h *Handlers) EditProfile(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not save image"})
 			return
 		}
-		// Remove the previous local avatar (if any) to avoid orphaned files.
 		if old := u.AvatarURL; strings.HasPrefix(old, "/uploads/") {
 			if rmErr := os.Remove(filepath.Join(h.cfg.UploadDir, filepath.Base(old))); rmErr != nil && !os.IsNotExist(rmErr) {
 				h.logger.Warn("remove old avatar", zap.String("path", old))
@@ -212,9 +192,16 @@ func (h *Handlers) EditProfile(c *gin.Context) {
 		avatarURL = "/uploads/" + stored
 	}
 
-	updated, err := h.store.UpdateProfile(c.Request.Context(), u.ID, name, bio, avatarURL)
+	updated, err := h.profile.UpdateProfile(c.Request.Context(), u.ID, name, bio, avatarURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update profile"})
+		switch {
+		case errors.Is(err, service.ErrProfileNameRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		case errors.Is(err, service.ErrBioTooLong):
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("bio too long (max %d characters)", service.MaxBioRunes)})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update profile"})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"user": updated})
