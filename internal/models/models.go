@@ -72,7 +72,7 @@ const (
 // Conversation represents a chat conversation (1-on-1 DM or group).
 type Conversation struct {
 	ID        int64  `json:"id"`
-	Type      string `json:"type"` // "dm" | "group"
+	Type      string `json:"type"`  // "dm" | "group"
 	Title     string `json:"title"` // group name; "" for DMs
 	CreatedAt int64  `json:"created_at"`
 }
@@ -81,14 +81,14 @@ type Conversation struct {
 // conversation list view.
 type ConversationPreview struct {
 	Conversation
-	OtherUserID   int64    `json:"other_user_id"`
-	OtherUserName string   `json:"other_user_name"`
-	OtherAvatar   string   `json:"other_avatar"`
-	LastMsgText   string   `json:"last_msg_text"`
-	LastMsgAt     int64    `json:"last_msg_at"`
-	LastMsgSender int64    `json:"last_msg_sender"`
-	UnreadCount   int64    `json:"unread_count"`
-	Online        bool     `json:"online"`
+	OtherUserID   int64  `json:"other_user_id"`
+	OtherUserName string `json:"other_user_name"`
+	OtherAvatar   string `json:"other_avatar"`
+	LastMsgText   string `json:"last_msg_text"`
+	LastMsgAt     int64  `json:"last_msg_at"`
+	LastMsgSender int64  `json:"last_msg_sender"`
+	UnreadCount   int64  `json:"unread_count"`
+	Online        bool   `json:"online"`
 }
 
 // Message represents a single chat message with sender display info.

@@ -13,8 +13,6 @@ import (
 const (
 	// readLimit caps the size of a single incoming WebSocket message.
 	readLimit = 4 * 1024 // 4 KiB
-	// readTimeout is the deadline for reading from the WebSocket.
-	readTimeout = 60 * time.Second
 	// writeTimeout is the deadline for writing to the WebSocket.
 	writeTimeout = 10 * time.Second
 )
@@ -38,14 +36,14 @@ func ServeWS(hub *Hub, lg *zap.Logger, w http.ResponseWriter, r *http.Request, u
 	hub.Register(client)
 	defer func() {
 		hub.Unregister(client)
-		conn.Close(websocket.StatusNormalClosure, "")
+		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
 	// Write pump: delivers outgoing messages from the hub to the client.
 	connCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	go writePump(conn, client, connCtx, lg)
+	go writePump(connCtx, conn, client)
 
 	// Read pump: reads incoming messages and dispatches them to the hub.
 	for {
@@ -76,7 +74,7 @@ func ServeWS(hub *Hub, lg *zap.Logger, w http.ResponseWriter, r *http.Request, u
 
 // writePump sends queued messages from the hub to the WebSocket client. Exits
 // when the client's send channel is closed or the context is cancelled.
-func writePump(conn *websocket.Conn, client *Client, ctx context.Context, lg *zap.Logger) {
+func writePump(ctx context.Context, conn *websocket.Conn, client *Client) {
 	for {
 		select {
 		case payload, ok := <-client.Send():
@@ -86,7 +84,6 @@ func writePump(conn *websocket.Conn, client *Client, ctx context.Context, lg *za
 			wctx, cancel := context.WithTimeout(ctx, writeTimeout)
 			if err := conn.Write(wctx, websocket.MessageText, payload); err != nil {
 				cancel()
-				lg.Debug("ws write", zap.Int64("user_id", client.UserID()), zap.Error(err))
 				return
 			}
 			cancel()

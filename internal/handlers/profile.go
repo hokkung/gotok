@@ -66,6 +66,7 @@ func (h *Handlers) ProfilePage(c *gin.Context) {
 }
 
 // ListVideosByUser godoc
+//
 //	@Summary		List a user's videos
 //	@Description	Returns a cursor-paginated page of a single user's videos (newest first) with the requesting viewer's like state.
 //	@Tags			users
@@ -106,6 +107,7 @@ func (h *Handlers) ListVideosByUser(c *gin.Context) {
 }
 
 // ListLikedVideos godoc
+//
 //	@Summary		List videos a user has liked
 //	@Description	Returns a cursor-paginated page of the videos a user has liked (most recently liked first) with the requesting viewer's like state.
 //	@Tags			users
@@ -142,6 +144,7 @@ func (h *Handlers) ListLikedVideos(c *gin.Context) {
 }
 
 // EditProfile godoc
+//
 //	@Summary		Edit profile
 //	@Description	Updates the current user's editable profile fields (name, bio, and optionally a new avatar image). Only the logged-in user can edit their own profile; on success it returns the updated user.
 //	@Tags			users

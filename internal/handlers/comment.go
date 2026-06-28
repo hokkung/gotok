@@ -14,6 +14,7 @@ import (
 const maxCommentLen = 500
 
 // ListComments godoc
+//
 //	@Summary		List comments for a video
 //	@Description	Returns a cursor-paginated page of comments for a video (newest first).
 //	@Tags			comments
@@ -50,6 +51,7 @@ func (h *Handlers) ListComments(c *gin.Context) {
 }
 
 // CreateComment godoc
+//
 //	@Summary		Create a comment on a video
 //	@Description	Accepts a new comment (form field "text") and returns the created comment plus the refreshed comment count.
 //	@Tags			comments

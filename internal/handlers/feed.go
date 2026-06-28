@@ -15,6 +15,7 @@ func (h *Handlers) FeedPage(c *gin.Context) {
 }
 
 // ListVideos godoc
+//
 //	@Summary		List videos for the feed
 //	@Description	Returns a cursor-paginated page of videos (newest first) for infinite scroll.
 //	@Tags			feed

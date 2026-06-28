@@ -56,9 +56,9 @@ func (h *Handlers) ListConversations(c *gin.Context) {
 
 // CreateConversationRequest is the body for POST /api/conversations.
 type CreateConversationRequest struct {
-	UserID  int64   `json:"user_id"`             // for DM
-	UserIDs []int64 `json:"user_ids,omitempty"`   // for group
-	Title   string  `json:"title,omitempty"`      // group title
+	UserID  int64   `json:"user_id"`            // for DM
+	UserIDs []int64 `json:"user_ids,omitempty"` // for group
+	Title   string  `json:"title,omitempty"`    // group title
 }
 
 // CreateConversation godoc

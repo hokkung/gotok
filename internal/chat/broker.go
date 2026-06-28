@@ -94,7 +94,7 @@ func (b *RedisBroker) Subscribe(ctx context.Context, userID int64, onMsg func([]
 }
 
 // Unsubscribe closes the Redis subscription for the user, if one exists.
-func (b *RedisBroker) Unsubscribe(ctx context.Context, userID int64) error {
+func (b *RedisBroker) Unsubscribe(_ context.Context, userID int64) error {
 	b.mu.Lock()
 	sub, ok := b.subs[userID]
 	if ok {

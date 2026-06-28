@@ -10,6 +10,7 @@ import (
 )
 
 // ToggleLike godoc
+//
 //	@Summary		Toggle like on a video
 //	@Description	Flips the requesting client's like on a video and returns the new state and total count.
 //	@Tags			likes
@@ -42,6 +43,7 @@ func (h *Handlers) ToggleLike(c *gin.Context) {
 }
 
 // View godoc
+//
 //	@Summary		Record a video view
 //	@Description	Increments a video's view counter (called once per video by the client).
 //	@Tags			videos

@@ -50,6 +50,7 @@ func (h *Handlers) LoginPage(c *gin.Context) {
 }
 
 // Me godoc
+//
 //	@Summary		Current user
 //	@Description	Returns the currently logged-in user, or null when the request is anonymous.
 //	@Tags			auth
@@ -61,6 +62,7 @@ func (h *Handlers) Me(c *gin.Context) {
 }
 
 // LoginDemo godoc
+//
 //	@Summary		Demo login
 //	@Description	Creates (or reuses) a "demo" user and starts a session cookie so the auth-gated actions (like/comment) can be exercised. Returns the user and a redirect target.
 //	@Tags			auth
@@ -86,13 +88,6 @@ func (h *Handlers) LoginDemo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "user": u, "redirect": validNext(c.PostForm("next"), "/feed")})
 }
 
-// LoginGoogle godoc
-//	@Summary		Google SSO (not implemented)
-//	@Description	Placeholder for Google sign-in. Always returns 501 until real SSO is wired up.
-//	@Tags			auth
-//	@Produce		json
-//	@Failure		501	{object}	ErrorResponse
-//	@Router			/auth/google [post]
 // Login authenticates an email/password account and starts a session. A single
 // generic "invalid email or password" message is returned for both an unknown
 // email and a wrong password to prevent user enumeration.
@@ -173,11 +168,20 @@ func normalizeEmail(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
+// LoginGoogle godoc
+//
+//	@Summary		Google SSO (not implemented)
+//	@Description	Placeholder for Google sign-in. Always returns 501 until real SSO is wired up.
+//	@Tags			auth
+//	@Produce		json
+//	@Failure		501	{object}	ErrorResponse
+//	@Router			/auth/google [post]
 func (h *Handlers) LoginGoogle(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "Google sign-in is coming soon"})
 }
 
 // LoginFacebook godoc
+//
 //	@Summary		Facebook SSO (not implemented)
 //	@Description	Placeholder for Facebook sign-in. Always returns 501 until real SSO is wired up.
 //	@Tags			auth

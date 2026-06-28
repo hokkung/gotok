@@ -39,6 +39,7 @@ func (h *Handlers) UploadPage(c *gin.Context) {
 }
 
 // Upload godoc
+//
 //	@Summary		Upload a video
 //	@Description	Handles a multipart video upload: validates type/size, stores it on the local filesystem, and records metadata. Accepted types: mp4, webm, mov, mkv.
 //	@Tags			upload

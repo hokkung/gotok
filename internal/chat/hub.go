@@ -35,11 +35,11 @@ type Envelope struct {
 	Text           string `json:"text,omitempty"`
 
 	// Populated for outgoing "message" events.
-	ID         int64  `json:"id,omitempty"`
-	SenderID   int64  `json:"sender_id,omitempty"`
-	SenderName string `json:"sender_name,omitempty"`
+	ID           int64  `json:"id,omitempty"`
+	SenderID     int64  `json:"sender_id,omitempty"`
+	SenderName   string `json:"sender_name,omitempty"`
 	SenderAvatar string `json:"sender_avatar,omitempty"`
-	CreatedAt  int64  `json:"created_at,omitempty"`
+	CreatedAt    int64  `json:"created_at,omitempty"`
 
 	// Populated for "presence" events.
 	Online bool `json:"online,omitempty"`
@@ -70,13 +70,6 @@ type Option func(*Hub)
 // WithLogger sets the hub's logger.
 func WithLogger(lg *zap.Logger) Option {
 	return func(h *Hub) { h.logger = lg }
-}
-
-// WithWriteBufferSize sets the per-client send buffer size (default 64).
-func WithWriteBufferSize(n int) Option {
-	return func(h *Hub) {
-		// Applied in NewHub when creating clients.
-	}
 }
 
 // NewHub creates a Hub wired to the given store and broker.
@@ -164,7 +157,7 @@ func (h *Hub) addClient(ctx context.Context, c *Client) {
 
 // removeClient unregisters a client locally and unsubscribes from Redis when
 // the last connection for that user disconnects.
-func (h *Hub) removeClient(ctx context.Context, c *Client) {
+func (h *Hub) removeClient(_ context.Context, c *Client) {
 	h.mu.Lock()
 	conns := h.clients[c.userID]
 	delete(conns, c)

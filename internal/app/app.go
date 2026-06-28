@@ -8,9 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"go.uber.org/zap"
 	swaggerFiles "github.com/swaggo/files"
 	"github.com/swaggo/gin-swagger"
+	"go.uber.org/zap"
 
 	_ "github.com/hokkung/gotok/docs" // registers the generated OpenAPI spec
 	"github.com/hokkung/gotok/internal/chat"
